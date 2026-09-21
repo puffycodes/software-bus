@@ -3,24 +3,11 @@ import asyncio
 import pytest
 
 from software_bus import BaseLayer
-from software_bus.base_layer import Connection
 
+from helpers import accept_one_peer_connection, open_peer_connection
 
-async def _open_peer_connection(host: str, port: int) -> Connection:
-    reader, writer = await asyncio.open_connection(host, port)
-    return Connection(reader, writer)
-
-
-async def _accept_one_peer_connection():
-    """Start a raw server on an ephemeral port and return it plus a future
-    for the first connection it accepts, to stand in for a peer instance."""
-    connected: asyncio.Future = asyncio.get_event_loop().create_future()
-
-    async def handler(reader, writer):
-        connected.set_result(Connection(reader, writer))
-
-    server = await asyncio.start_server(handler, "127.0.0.1", 0)
-    return server, connected
+_open_peer_connection = open_peer_connection
+_accept_one_peer_connection = accept_one_peer_connection
 
 
 def test_instantiation_defaults():

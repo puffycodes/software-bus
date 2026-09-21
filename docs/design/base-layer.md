@@ -29,3 +29,22 @@ Functionalities
 - **Register Receive Callback** Provide a function to call when data are received.
     - Default is None, meaning not to call any function.
 - **Action Upon Receiving of Data** Call the given function, if any, with the data as one of the parameters.
+
+## bl_server Script
+
+- Create an instance of Base Layer Class.
+- Connect to zero or more upstream bl_server.
+    - parameter --upstream ip:port (default: None)
+- Accepting connection from zero or more downstream client.
+    - parameter --listen ip:port (default: None)
+
+## bl_client Script
+
+- Create an instance of Base Layer Client Class.
+- Connect to an upstream bl_server
+    - parameter --upstream ip:port (default: as per default in Base Layer Class)
+- Send a message.
+    - parameter --message "message to be send"
+- After sending the message, listen for any receieved message
+    - print the message
+    

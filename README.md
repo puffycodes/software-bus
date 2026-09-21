@@ -83,6 +83,29 @@ async def main():
 asyncio.run(main())
 ```
 
+## Command-line tools
+
+`bl_server` runs a bus node: it connects to zero or more upstream servers
+and/or listens for downstream connections.
+
+```
+python -m software_bus.bl_server --listen 127.0.0.1:8787
+python -m software_bus.bl_server --upstream 10.0.0.1:8787 --listen 127.0.0.1:8787
+```
+
+`--upstream` and `--listen` may each be repeated to connect to, or listen
+on, multiple addresses.
+
+`bl_client` connects to a bus node, sends one message, then prints any
+messages it receives in reply:
+
+```
+python -m software_bus.bl_client --upstream 127.0.0.1:8787 --message "hello"
+```
+
+If installed (`pip install -e .`), both are also available as the
+`bl_server` and `bl_client` commands directly.
+
 ## Project layout
 
 ```
@@ -90,5 +113,7 @@ docs/design/    design docs
 src/software_bus/
     base_layer.py   BaseLayer, Connection
     client.py       BaseLayerClient
+    bl_server.py    bl_server CLI
+    bl_client.py    bl_client CLI
 tests/          pytest test suite
 ```
