@@ -23,7 +23,7 @@ class Connection:
 
     reader: asyncio.StreamReader
     writer: asyncio.StreamWriter
-    relay_task: Optional[asyncio.Task] = None
+    background_task: Optional[asyncio.Task] = None
 
     @property
     def address(self) -> Optional[Tuple]:
@@ -39,8 +39,8 @@ class Connection:
         return await self.reader.readexactly(length)
 
     async def close(self) -> None:
-        if self.relay_task is not None:
-            self.relay_task.cancel()
+        if self.background_task is not None:
+            self.background_task.cancel()
         if self.writer.is_closing():
             return
         self.writer.close()
@@ -97,7 +97,7 @@ class BaseLayer:
         connection = Connection(reader, writer)
         self.downstream_connections.append(connection)
         logger.info("Accepted downstream connection from %s", connection.address)
-        connection.relay_task = asyncio.ensure_future(
+        connection.background_task = asyncio.ensure_future(
             self._relay_loop(connection, self.downstream_connections)
         )
 
@@ -110,7 +110,7 @@ class BaseLayer:
         connection = Connection(reader, writer)
         self.upstream_connections.append(connection)
         logger.info("Established upstream connection to %s:%s", host, port)
-        connection.relay_task = asyncio.ensure_future(
+        connection.background_task = asyncio.ensure_future(
             self._relay_loop(connection, self.upstream_connections)
         )
         return connection

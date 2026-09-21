@@ -17,3 +17,15 @@ Funcionalities
     - a list of IP/port that it is accepting connections on.
     - a list of upstream connections.
     - a list of downstream connections.
+
+## Base Layer Client Class
+
+Functionalities
+
+- **Instantiation** Create an instance of the class
+- **Connect** Create a TCP connection on an IP address and a port number.
+    - The default IP address and port number is the same as the Base Layer Class.
+- **Send** Send data to the TCP connection established.
+- **Register Receive Callback** Provide a function to call when data are received.
+    - Default is None, meaning not to call any function.
+- **Action Upon Receiving of Data** Call the given function, if any, with the data as one of the parameters.
