@@ -43,8 +43,9 @@ Functionalities
 - Create an instance of Base Layer Client Class.
 - Connect to an upstream bl_server
     - parameter --upstream ip:port (default: as per default in Base Layer Class)
-- Send a message.
-    - parameter --message "message to be send"
+- Send messages.
+    - parameter --message "message to be send" (default: None, don't send any message)
+    - parameter --repeat-count n (default: 1)
+    - parameter --repeat-interval t (default: 1 sec)
 - After sending the message, listen for any receieved message
     - print the message
-    

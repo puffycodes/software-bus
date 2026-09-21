@@ -45,11 +45,21 @@ def test_bl_client_arg_parser_defaults_match_base_layer_defaults():
     args = bl_client.build_arg_parser().parse_args(["--message", "hi"])
     assert args.upstream == (DEFAULT_HOST, DEFAULT_PORT)
     assert args.message == "hi"
+    assert args.repeat_count == 1
+    assert args.repeat_interval == 1.0
 
 
-def test_bl_client_arg_parser_requires_message():
-    with pytest.raises(SystemExit):
-        bl_client.build_arg_parser().parse_args([])
+def test_bl_client_arg_parser_custom_repeat_options():
+    args = bl_client.build_arg_parser().parse_args(
+        ["--message", "hi", "--repeat-count", "3", "--repeat-interval", "0.5"]
+    )
+    assert args.repeat_count == 3
+    assert args.repeat_interval == 0.5
+
+
+def test_bl_client_arg_parser_message_defaults_to_none():
+    args = bl_client.build_arg_parser().parse_args([])
+    assert args.message is None
 
 
 @pytest.mark.asyncio
@@ -100,6 +110,66 @@ async def test_bl_client_run_sends_message_and_prints_received(capsys):
 
         captured = capsys.readouterr()
         assert "reply" in captured.out
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await other_peer.close()
+        await hub.close()
+
+
+@pytest.mark.asyncio
+async def test_bl_client_run_without_message_does_not_send_but_still_listens(capsys):
+    hub = BaseLayer()
+    server = await hub.accept_connection(port=0)
+    hub_port = server.sockets[0].getsockname()[1]
+
+    other_peer = await open_peer_connection("127.0.0.1", hub_port)
+
+    task = asyncio.ensure_future(bl_client.run("127.0.0.1", hub_port, None))
+    try:
+        await asyncio.sleep(0.05)
+
+        # nothing should have been sent
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(other_peer.receive(), timeout=0.2)
+
+        # it should still relay incoming data to the registered callback
+        await other_peer.send(b"still listening")
+        await asyncio.sleep(0.1)
+
+        captured = capsys.readouterr()
+        assert "still listening" in captured.out
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await other_peer.close()
+        await hub.close()
+
+
+@pytest.mark.asyncio
+async def test_bl_client_run_sends_message_repeat_count_times():
+    hub = BaseLayer()
+    server = await hub.accept_connection(port=0)
+    hub_port = server.sockets[0].getsockname()[1]
+
+    other_peer = await open_peer_connection("127.0.0.1", hub_port)
+
+    task = asyncio.ensure_future(
+        bl_client.run(
+            "127.0.0.1", hub_port, "hi", repeat_count=3, repeat_interval=0.05
+        )
+    )
+    try:
+        received = [
+            await asyncio.wait_for(other_peer.receive(), timeout=1) for _ in range(3)
+        ]
+        assert received == [b"hi", b"hi", b"hi"]
+
+        # no fourth send should follow
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(other_peer.receive(), timeout=0.2)
     finally:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):

@@ -96,11 +96,21 @@ python -m software_bus.bl_server --upstream 10.0.0.1:8787 --listen 127.0.0.1:878
 `--upstream` and `--listen` may each be repeated to connect to, or listen
 on, multiple addresses.
 
-`bl_client` connects to a bus node, sends one message, then prints any
-messages it receives in reply:
+`bl_client` connects to a bus node, optionally sends a message, then
+prints any messages it receives in reply. `--message` defaults to `None`,
+meaning it just connects and listens without sending anything:
 
 ```
 python -m software_bus.bl_client --upstream 127.0.0.1:8787 --message "hello"
+python -m software_bus.bl_client --upstream 127.0.0.1:8787  # listen only
+```
+
+The message can be sent more than once with `--repeat-count n` (default 1),
+waiting `--repeat-interval t` seconds between sends (default 1):
+
+```
+python -m software_bus.bl_client --upstream 127.0.0.1:8787 --message "ping" \
+    --repeat-count 5 --repeat-interval 0.5
 ```
 
 If installed (`pip install -e .`), both are also available as the
