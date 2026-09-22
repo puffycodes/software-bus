@@ -143,7 +143,7 @@ async def test_data_from_downstream_relayed_to_upstream_and_other_downstream():
 
 
 @pytest.mark.asyncio
-async def test_data_from_upstream_relayed_only_to_downstream():
+async def test_data_from_upstream_relayed_to_downstream_and_other_upstream():
     hub = BaseLayerNode()
     servers = []
     downstream_peer = None
@@ -173,10 +173,14 @@ async def test_data_from_upstream_relayed_only_to_downstream():
             await asyncio.wait_for(downstream_peer.receive(), timeout=1)
             == b"from-upstream"
         )
+        assert (
+            await asyncio.wait_for(upstream_peer_2.receive(), timeout=1)
+            == b"from-upstream"
+        )
 
-        # must not be relayed to other upstream connections
+        # the sender must not get its own message echoed back
         with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(upstream_peer_2.receive(), timeout=0.2)
+            await asyncio.wait_for(upstream_peer_1.receive(), timeout=0.2)
     finally:
         await hub.close()
         for server in servers:

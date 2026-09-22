@@ -12,7 +12,7 @@ Funcionalities
 - **Establish Connection** Create a TCP connection to an upstream instance.
 - **Register Upstream Receive Callback** Provide a function to call when data are received from any of the upstream connections.
     - A default upstream receive callback will be registerd during instantiation.
-        - The default upstream receive callback will re-send the data received from a upstream connection to all the downstream connections.
+        - The default upstream receive callback will re-send the data received from a upstream connection to all the downstream connections, as well as all the upstream connections, other than itself.
 - **Register Downstream Receive Callback** Provide a function to call when data are received from any of the downstream connections.
     - A default downstream receive callback will be registerd during instantiation.
         - The default downstream receive callback will re-send the data received from a downstream connection to all the upstream connections, as well as all the downstream connections, other than itself.

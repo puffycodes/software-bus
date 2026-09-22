@@ -3,11 +3,11 @@
 A layered software bus for connecting distributed instances over TCP.
 
 Instances connect to each other as **upstream** (toward the hub/root) and
-**downstream** (branching out) peers, forming a tree. Data sent into the
-bus is flooded outward: anything received from a downstream connection is
+**downstream** (branching out) peers, forming a tree. Data is flooded to
+every other connection: anything received from a downstream connection is
 relayed to all upstream connections and to every other downstream
 connection; anything received from an upstream connection is relayed to
-all downstream connections.
+all downstream connections and to every other upstream connection.
 
 See [`docs/design/base-layer.md`](docs/design/base-layer.md) for the full
 design and routing rules.

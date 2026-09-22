@@ -157,8 +157,12 @@ class BaseLayerNode:
     async def _default_upstream_receive_callback(
         self, source: Connection, data: bytes
     ) -> None:
-        """Re-send data received from an upstream connection to all downstream connections."""
-        await self._relay_to(list(self.downstream_connections), data)
+        """Re-send data to all downstream connections and other upstream connections."""
+        targets = [
+            *self.downstream_connections,
+            *(c for c in self.upstream_connections if c is not source),
+        ]
+        await self._relay_to(targets, data)
 
     async def _default_downstream_receive_callback(
         self, source: Connection, data: bytes
