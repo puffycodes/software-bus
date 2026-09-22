@@ -10,7 +10,9 @@ connection; anything received from an upstream connection is relayed to
 all downstream connections and to every other upstream connection.
 
 See [`docs/design/base-layer.md`](docs/design/base-layer.md) for the full
-design and routing rules.
+design and routing rules, and
+[`docs/design/publish-subscribe.md`](docs/design/publish-subscribe.md) for
+the publish/subscribe layer built on top of it.
 
 ## Install
 
@@ -68,6 +70,23 @@ hub.register_downstream_receive_callback(
 )
 ```
 
+#### Wire format
+
+TCP gives no message boundaries of its own, so every connection (whether
+it carries raw `BaseLayerClient`/`bl_client` data or an encoded pub/sub
+message) is framed by `Connection` the same way — a 4-byte big-endian
+length prefix followed by exactly that many bytes of payload:
+
+| Field    | Bytes             |
+|----------|-------------------|
+| `length` | 4 (big-endian)    |
+| `data`   | `length` bytes    |
+
+There's no message-type byte at this layer; `data` is opaque to
+`BaseLayerNode`/`BaseLayerClient` and is relayed as-is. It's up to
+whatever's built on top — such as the pub/sub layer below — to give that
+payload further structure.
+
 ### `BaseLayerClient` — a leaf client
 
 A plain point-to-point client for talking to a `BaseLayerNode` node: connect,
@@ -96,6 +115,64 @@ async def main():
 
 asyncio.run(main())
 ```
+
+### `PubSubNode` and `PubSubClient` — publish/subscribe
+
+A publish/subscribe layer built on top of `BaseLayerNode`/`BaseLayerClient`.
+A **subject** is a `.`-separated string (e.g. `"a.b"`). A `PubSubClient`
+subscribes to a subject to receive future publishes tagged with it, and
+publishes payloads under a subject; a `PubSubNode` tracks, per subject,
+which of its connections are interested and only forwards a publish to
+those, propagating subscribe/unsubscribe through the tree as needed.
+
+```python
+import asyncio
+from software_bus import PubSubClient, PubSubNode
+
+async def main():
+    node = PubSubNode()
+    await node.accept_connection("127.0.0.1", 8787)
+
+    subscriber = PubSubClient()
+    subscriber.register_publish_callback(
+        lambda subject, payload: print(f"{subject}: {payload!r}")
+    )
+    await subscriber.connect("127.0.0.1", 8787)
+    await subscriber.subscribe("a.b")
+
+    publisher = PubSubClient()
+    await publisher.connect("127.0.0.1", 8787)
+    await publisher.publish("a.b", b"hello")
+
+    # ... run for a while ...
+
+    await subscriber.close()
+    await publisher.close()
+    await node.close()
+
+asyncio.run(main())
+```
+
+Unsubscribe by passing `subscribe=False`: `await subscriber.subscribe("a.b", subscribe=False)`.
+A `PubSubClient` can also react to subscription traffic with
+`register_subscribe_callback(lambda subject, state: ...)`, called with
+`state` `True` for subscribe and `False` for unsubscribe.
+
+#### Wire format
+
+Each pub/sub message is sent as the base layer's `data` payload (see the
+base layer wire format above — no additional outer framing is needed
+here). The first byte is a message type tag:
+
+| Message      | Byte layout                                                                 |
+|--------------|------------------------------------------------------------------------------|
+| Subscription | `0x01` \| `state` (1 byte: `0x01` subscribe / `0x00` unsubscribe) \| `subject_length` (2 bytes, big-endian) \| `subject` (UTF-8) |
+| Publish      | `0x02` \| `subject_length` (2 bytes, big-endian) \| `subject` (UTF-8) \| `payload` (remaining bytes, arbitrary binary) |
+
+`subject_length` caps subjects at 65535 UTF-8 bytes. A publish payload has
+no length field of its own — it's simply everything left in the message
+after the subject, since the outer base layer framing already delimits the
+whole message.
 
 ## Command-line tools
 
@@ -144,6 +221,7 @@ docs/design/    design docs
 src/software_bus/
     base_layer.py   BaseLayerNode, Connection
     client.py       BaseLayerClient
+    pubsub.py       PubSubNode, PubSubClient
     bl_server.py    bl_server CLI
     bl_client.py    bl_client CLI
 tests/          pytest test suite
