@@ -34,25 +34,25 @@ def test_ps_server_arg_parser_accumulates_repeated_flags():
     assert args.listen == [("0.0.0.0", 2222)]
 
 
-def test_ps_subscribe_arg_parser_defaults():
-    args = ps_subscribe.build_arg_parser().parse_args([])
-    assert args.upstream == (DEFAULT_HOST, DEFAULT_PORT)
-    assert args.subject == []
-    assert args.time_stamp is True
+def test_ps_subscribe_arg_parser_requires_subject():
+    with pytest.raises(SystemExit):
+        ps_subscribe.build_arg_parser().parse_args([])
 
 
 def test_ps_subscribe_arg_parser_parses_comma_separated_subjects():
     args = ps_subscribe.build_arg_parser().parse_args(["--subject", "a.b, c.d ,e.f"])
-    assert args.subject == ["a.b", "c.d", "e.f"]
-
-
-def test_ps_publish_arg_parser_defaults():
-    args = ps_publish.build_arg_parser().parse_args([])
     assert args.upstream == (DEFAULT_HOST, DEFAULT_PORT)
-    assert args.subject is None
-    assert args.message is None
-    assert args.repeat_count == 1
-    assert args.repeat_interval == 1.0
+    assert args.subject == ["a.b", "c.d", "e.f"]
+    assert args.time_stamp is True
+
+
+def test_ps_publish_arg_parser_requires_subject_and_message():
+    with pytest.raises(SystemExit):
+        ps_publish.build_arg_parser().parse_args([])
+    with pytest.raises(SystemExit):
+        ps_publish.build_arg_parser().parse_args(["--subject", "a.b"])
+    with pytest.raises(SystemExit):
+        ps_publish.build_arg_parser().parse_args(["--message", "hi"])
 
 
 def test_ps_publish_arg_parser_custom_options():
@@ -204,27 +204,3 @@ async def test_ps_publish_run_publishes_message_repeat_count_times():
         await hub.close()
 
 
-@pytest.mark.asyncio
-async def test_ps_publish_run_without_subject_or_message_does_not_publish():
-    hub = PubSubNode()
-    server = await hub.accept_connection(port=0)
-    hub_port = server.sockets[0].getsockname()[1]
-
-    subscriber = PubSubClient()
-    received = []
-    subscriber.register_publish_callback(
-        lambda subject, payload: received.append((subject, payload))
-    )
-    try:
-        await subscriber.connect("127.0.0.1", hub_port)
-        await asyncio.sleep(0.05)
-        await subscriber.subscribe("a.b")
-        await asyncio.sleep(0.05)
-
-        await ps_publish.run("127.0.0.1", hub_port, None, None)
-        await asyncio.sleep(0.1)
-
-        assert received == []
-    finally:
-        await subscriber.close()
-        await hub.close()

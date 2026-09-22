@@ -25,9 +25,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--subject",
         type=parse_subject_list,
-        default=[],
+        required=True,
         metavar='"<subject_1>,<subject_2>,..."',
-        help="comma-separated subjects to subscribe to (default: none)",
+        help="comma-separated subjects to subscribe to",
     )
     parser.add_argument(
         "--time-stamp",

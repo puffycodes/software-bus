@@ -71,7 +71,7 @@
 - Connect to an upstream server.
     - parameter --upstream ip:port (default: as per default in Base Layer Node Class)
 - Subscribe to one or more subjects
-    - parameter --subject "<subject_1>,<subject_2>,..."
+    - parameter --subject "<subject_1>,<subject_2>,..." (required)
     - print the subject and the payload received with the publish message with an optional time stamp
         - parameter --time-stamp true|false (default: true)
 
@@ -81,7 +81,7 @@
 - Connect to an upstream server.
     - parameter --upstream ip:port (default: as per default in Base Layer Node Class)
 - Publish messages.
-    - parameter --subject "subject to publish to"
-    - parameter --message "message to publish"
+    - parameter --subject "subject to publish to" (required)
+    - parameter --message "message to publish" (required)
     - parameter --repeat-count n (default: 1)
     - parameter --repeat-interval t (default: 1 sec)

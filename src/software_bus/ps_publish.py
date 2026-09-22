@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from typing import List, Optional, Union
+from typing import List, Optional
 
 from ._cli import parse_address
 from .base_layer import DEFAULT_HOST, DEFAULT_PORT
@@ -23,13 +23,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--subject",
-        default=None,
-        help="subject to publish to (default: None, don't publish anything)",
+        required=True,
+        help="subject to publish to",
     )
     parser.add_argument(
         "--message",
-        default=None,
-        help="message to publish (default: None, don't publish anything)",
+        required=True,
+        help="message to publish",
     )
     parser.add_argument(
         "--repeat-count",
@@ -51,20 +51,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
 async def run(
     host: str,
     port: int,
-    subject: Union[str, None],
-    message: Union[str, None],
+    subject: str,
+    message: str,
     repeat_count: int = 1,
     repeat_interval: float = 1.0,
 ) -> None:
     client = PubSubClient()
     try:
         await client.connect(host, port)
-        if subject is not None and message is not None:
-            payload = message.encode()
-            for i in range(repeat_count):
-                if i > 0:
-                    await asyncio.sleep(repeat_interval)
-                await client.publish(subject, payload)
+        payload = message.encode()
+        for i in range(repeat_count):
+            if i > 0:
+                await asyncio.sleep(repeat_interval)
+            await client.publish(subject, payload)
     finally:
         await client.close()
 
