@@ -47,5 +47,6 @@ Functionalities
     - parameter --message "message to be send" (default: None, don't send any message)
     - parameter --repeat-count n (default: 1)
     - parameter --repeat-interval t (default: 1 sec)
-- After sending the message, listen for any receieved message
-    - print the message
+- Listen for any receieved message.
+    - print the message received with an optional time stamp
+        - parameter --time-stamp true|false (default: true)

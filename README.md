@@ -113,6 +113,13 @@ python -m software_bus.bl_client --upstream 127.0.0.1:8787 --message "ping" \
     --repeat-count 5 --repeat-interval 0.5
 ```
 
+Received messages are printed with a time stamp by default; pass
+`--time-stamp false` to omit it:
+
+```
+python -m software_bus.bl_client --upstream 127.0.0.1:8787 --time-stamp false
+```
+
 If installed (`pip install -e .`), both are also available as the
 `bl_server` and `bl_client` commands directly.
 

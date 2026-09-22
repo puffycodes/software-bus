@@ -10,3 +10,13 @@ def parse_address(value: str) -> Tuple[str, int]:
     if not sep or not host or not port.isdigit():
         raise argparse.ArgumentTypeError(f"expected ip:port, got {value!r}")
     return host, int(port)
+
+
+def parse_bool(value: str) -> bool:
+    """Parse a "true"/"false" command-line argument."""
+    lowered = value.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    raise argparse.ArgumentTypeError(f"expected true|false, got {value!r}")

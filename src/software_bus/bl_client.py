@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from datetime import datetime
 from typing import List, Optional, Union
 
-from ._cli import parse_address
+from ._cli import parse_address, parse_bool
 from .base_layer import DEFAULT_HOST, DEFAULT_PORT
 from .client import BaseLayerClient
 
@@ -40,7 +41,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
         metavar="t",
         help="seconds to wait between repeated sends (default: 1)",
     )
+    parser.add_argument(
+        "--time-stamp",
+        type=parse_bool,
+        default=True,
+        metavar="true|false",
+        help="print a time stamp with each received message (default: true)",
+    )
     return parser
+
+
+def _print_received(data: bytes, time_stamp: bool) -> None:
+    text = data.decode(errors="replace")
+    if time_stamp:
+        text = f"[{datetime.now().isoformat()}] {text}"
+    print(text, flush=True)
 
 
 async def run(
@@ -49,10 +64,11 @@ async def run(
     message: Union[str, None],
     repeat_count: int = 1,
     repeat_interval: float = 1.0,
+    time_stamp: bool = True,
 ) -> None:
     client = BaseLayerClient()
     client.register_receive_callback(
-        lambda data: print(data.decode(errors="replace"), flush=True)
+        lambda data: _print_received(data, time_stamp)
     )
     try:
         await client.connect(host, port)
@@ -78,6 +94,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                 args.message,
                 args.repeat_count,
                 args.repeat_interval,
+                args.time_stamp,
             )
         )
     except KeyboardInterrupt:
