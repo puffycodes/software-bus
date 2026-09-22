@@ -1,4 +1,4 @@
-from .base_layer import BaseLayer, Connection
+from .base_layer import BaseLayerNode, Connection
 from .client import BaseLayerClient
 
-__all__ = ["BaseLayer", "Connection", "BaseLayerClient"]
+__all__ = ["BaseLayerNode", "Connection", "BaseLayerClient"]

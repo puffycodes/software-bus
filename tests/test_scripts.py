@@ -5,7 +5,7 @@ import pytest
 
 from software_bus import bl_client, bl_server
 from software_bus._cli import parse_address
-from software_bus.base_layer import DEFAULT_HOST, DEFAULT_PORT, BaseLayer
+from software_bus.base_layer import DEFAULT_HOST, DEFAULT_PORT, BaseLayerNode
 
 from helpers import accept_one_peer_connection, free_port, open_peer_connection
 
@@ -94,7 +94,7 @@ async def test_bl_server_run_listens_and_connects_upstream():
 
 @pytest.mark.asyncio
 async def test_bl_client_run_sends_message_and_prints_received(capsys):
-    hub = BaseLayer()
+    hub = BaseLayerNode()
     server = await hub.accept_connection(port=0)
     hub_port = server.sockets[0].getsockname()[1]
 
@@ -120,7 +120,7 @@ async def test_bl_client_run_sends_message_and_prints_received(capsys):
 
 @pytest.mark.asyncio
 async def test_bl_client_run_without_message_does_not_send_but_still_listens(capsys):
-    hub = BaseLayer()
+    hub = BaseLayerNode()
     server = await hub.accept_connection(port=0)
     hub_port = server.sockets[0].getsockname()[1]
 
@@ -150,7 +150,7 @@ async def test_bl_client_run_without_message_does_not_send_but_still_listens(cap
 
 @pytest.mark.asyncio
 async def test_bl_client_run_sends_message_repeat_count_times():
-    hub = BaseLayer()
+    hub = BaseLayerNode()
     server = await hub.accept_connection(port=0)
     hub_port = server.sockets[0].getsockname()[1]
 

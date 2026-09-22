@@ -54,7 +54,7 @@ class Connection:
 ReceiveCallback = Callable[["Connection", bytes], Any]
 
 
-class BaseLayer:
+class BaseLayerNode:
     """Base layer of the software bus.
 
     Accepts TCP connections from downstream instances on any number of
@@ -191,7 +191,7 @@ class BaseLayer:
         self.upstream_connections.clear()
         self.downstream_connections.clear()
 
-    async def __aenter__(self) -> "BaseLayer":
+    async def __aenter__(self) -> "BaseLayerNode":
         await self.accept_connection()
         return self
 

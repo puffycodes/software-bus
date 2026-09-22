@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from software_bus import BaseLayer
+from software_bus import BaseLayerNode
 
 from helpers import accept_one_peer_connection, open_peer_connection
 
@@ -11,7 +11,7 @@ _accept_one_peer_connection = accept_one_peer_connection
 
 
 def test_instantiation_defaults():
-    layer = BaseLayer()
+    layer = BaseLayerNode()
     assert layer.listening_addresses == []
     assert layer.upstream_connections == []
     assert layer.downstream_connections == []
@@ -20,7 +20,7 @@ def test_instantiation_defaults():
 
 @pytest.mark.asyncio
 async def test_accept_connection_starts_listening_with_defaults():
-    layer = BaseLayer()
+    layer = BaseLayerNode()
     try:
         server = await layer.accept_connection(port=0)
         bound_port = server.sockets[0].getsockname()[1]
@@ -33,7 +33,7 @@ async def test_accept_connection_starts_listening_with_defaults():
 
 @pytest.mark.asyncio
 async def test_accept_connection_is_idempotent_per_address():
-    layer = BaseLayer()
+    layer = BaseLayerNode()
     try:
         server1 = await layer.accept_connection(host="127.0.0.1", port=0)
         bound_port = server1.sockets[0].getsockname()[1]
@@ -46,7 +46,7 @@ async def test_accept_connection_is_idempotent_per_address():
 
 @pytest.mark.asyncio
 async def test_accept_connection_supports_multiple_addresses():
-    layer = BaseLayer()
+    layer = BaseLayerNode()
     try:
         server1 = await layer.accept_connection(host="127.0.0.1", port=0)
         server2 = await layer.accept_connection(host="127.0.0.1", port=0)
@@ -63,11 +63,11 @@ async def test_accept_connection_supports_multiple_addresses():
 
 @pytest.mark.asyncio
 async def test_establish_connection_between_two_instances():
-    downstream_layer = BaseLayer()
+    downstream_layer = BaseLayerNode()
     server = await downstream_layer.accept_connection(port=0)
     bound_port = server.sockets[0].getsockname()[1]
 
-    upstream_layer = BaseLayer()
+    upstream_layer = BaseLayerNode()
     try:
         connection = await upstream_layer.establish_connection("127.0.0.1", bound_port)
 
@@ -84,11 +84,11 @@ async def test_establish_connection_between_two_instances():
 
 @pytest.mark.asyncio
 async def test_close_clears_connection_lists_and_addresses():
-    downstream_layer = BaseLayer()
+    downstream_layer = BaseLayerNode()
     server = await downstream_layer.accept_connection(port=0)
     bound_port = server.sockets[0].getsockname()[1]
 
-    upstream_layer = BaseLayer()
+    upstream_layer = BaseLayerNode()
     await upstream_layer.establish_connection("127.0.0.1", bound_port)
     await asyncio.sleep(0.05)
 
@@ -102,14 +102,14 @@ async def test_close_clears_connection_lists_and_addresses():
 
 @pytest.mark.asyncio
 async def test_async_context_manager():
-    async with BaseLayer() as layer:
+    async with BaseLayerNode() as layer:
         assert layer.is_accepting()
     assert layer.listening_addresses == []
 
 
 @pytest.mark.asyncio
 async def test_data_from_downstream_relayed_to_upstream_and_other_downstream():
-    hub = BaseLayer()
+    hub = BaseLayerNode()
     upstream_server, upstream_connected = await _accept_one_peer_connection()
     upstream_port = upstream_server.sockets[0].getsockname()[1]
     peer_a = peer_b = None
@@ -144,7 +144,7 @@ async def test_data_from_downstream_relayed_to_upstream_and_other_downstream():
 
 @pytest.mark.asyncio
 async def test_data_from_upstream_relayed_only_to_downstream():
-    hub = BaseLayer()
+    hub = BaseLayerNode()
     servers = []
     downstream_peer = None
     try:
@@ -188,7 +188,7 @@ async def test_data_from_upstream_relayed_only_to_downstream():
 
 @pytest.mark.asyncio
 async def test_register_downstream_receive_callback_overrides_default_relay():
-    hub = BaseLayer()
+    hub = BaseLayerNode()
     received = []
     hub.register_downstream_receive_callback(
         lambda source, data: received.append(data)
@@ -219,7 +219,7 @@ async def test_register_downstream_receive_callback_overrides_default_relay():
 
 @pytest.mark.asyncio
 async def test_register_upstream_receive_callback_overrides_default_relay():
-    hub = BaseLayer()
+    hub = BaseLayerNode()
     received = []
 
     async def async_callback(source, data):
@@ -256,7 +256,7 @@ async def test_register_upstream_receive_callback_overrides_default_relay():
 
 @pytest.mark.asyncio
 async def test_default_downstream_receive_callback_excludes_source_connection():
-    hub = BaseLayer()
+    hub = BaseLayerNode()
     peer_a = peer_b = None
     try:
         server = await hub.accept_connection(port=0)

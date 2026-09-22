@@ -3,7 +3,7 @@ import inspect
 
 import pytest
 
-from software_bus import BaseLayer, BaseLayerClient
+from software_bus import BaseLayerNode, BaseLayerClient
 from software_bus.base_layer import DEFAULT_HOST, DEFAULT_PORT
 
 
@@ -20,7 +20,7 @@ def test_client_connect_defaults_match_base_layer_defaults():
 
 @pytest.mark.asyncio
 async def test_client_connect_sets_connection():
-    hub = BaseLayer()
+    hub = BaseLayerNode()
     client = BaseLayerClient()
     try:
         server = await hub.accept_connection(port=0)
@@ -36,7 +36,7 @@ async def test_client_connect_sets_connection():
 
 @pytest.mark.asyncio
 async def test_client_send_reaches_hub():
-    hub = BaseLayer()
+    hub = BaseLayerNode()
     client = BaseLayerClient()
     try:
         server = await hub.accept_connection(port=0)
@@ -56,7 +56,7 @@ async def test_client_send_reaches_hub():
 
 @pytest.mark.asyncio
 async def test_client_receive_callback_invoked_with_data():
-    hub = BaseLayer()
+    hub = BaseLayerNode()
     sender = BaseLayerClient()
     receiver = BaseLayerClient()
     received = []
@@ -81,7 +81,7 @@ async def test_client_receive_callback_invoked_with_data():
 
 @pytest.mark.asyncio
 async def test_client_receive_callback_supports_async_callback():
-    hub = BaseLayer()
+    hub = BaseLayerNode()
     sender = BaseLayerClient()
     receiver = BaseLayerClient()
     received = []
@@ -110,7 +110,7 @@ async def test_client_receive_callback_supports_async_callback():
 
 @pytest.mark.asyncio
 async def test_client_no_callback_by_default_does_not_raise():
-    hub = BaseLayer()
+    hub = BaseLayerNode()
     sender = BaseLayerClient()
     receiver = BaseLayerClient()
     try:

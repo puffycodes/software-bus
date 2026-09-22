@@ -33,7 +33,7 @@ PYTHONPATH=src python3 -m pytest -v
 
 ## Usage
 
-### `BaseLayer` — a bus node
+### `BaseLayerNode` — a bus node
 
 Accepts downstream connections on one or more IP/port pairs, can connect
 out to an upstream instance, and relays data per the routing rule above.
@@ -45,10 +45,10 @@ be replaced with `register_upstream_receive_callback` /
 
 ```python
 import asyncio
-from software_bus import BaseLayer
+from software_bus import BaseLayerNode
 
 async def main():
-    hub = BaseLayer()
+    hub = BaseLayerNode()
     await hub.accept_connection("127.0.0.1", 8787)  # listen for downstream peers
     await hub.establish_connection("10.0.0.1", 8787)  # connect to an upstream peer
 
@@ -70,8 +70,8 @@ hub.register_downstream_receive_callback(
 
 ### `BaseLayerClient` — a leaf client
 
-A plain point-to-point client for talking to a `BaseLayer` node: connect,
-send, and register a callback for incoming data. A `BaseLayer` never
+A plain point-to-point client for talking to a `BaseLayerNode` node: connect,
+send, and register a callback for incoming data. A `BaseLayerNode` never
 echoes data back to the connection it came from, so the example below
 uses two clients — `sender` won't see its own message.
 
@@ -142,7 +142,7 @@ If installed (`pip install -e .`), both are also available as the
 ```
 docs/design/    design docs
 src/software_bus/
-    base_layer.py   BaseLayer, Connection
+    base_layer.py   BaseLayerNode, Connection
     client.py       BaseLayerClient
     bl_server.py    bl_server CLI
     bl_client.py    bl_client CLI

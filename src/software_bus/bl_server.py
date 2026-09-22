@@ -6,7 +6,7 @@ import asyncio
 from typing import List, Optional, Tuple
 
 from ._cli import parse_address
-from .base_layer import BaseLayer
+from .base_layer import BaseLayerNode
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -33,7 +33,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 async def run(
     upstreams: List[Tuple[str, int]], listens: List[Tuple[str, int]]
 ) -> None:
-    layer = BaseLayer()
+    layer = BaseLayerNode()
     try:
         for host, port in upstreams:
             await layer.establish_connection(host, port)
