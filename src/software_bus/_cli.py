@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from typing import Tuple
+from typing import List, Tuple
 
 
 def parse_address(value: str) -> Tuple[str, int]:
@@ -20,3 +20,12 @@ def parse_bool(value: str) -> bool:
     if lowered == "false":
         return False
     raise argparse.ArgumentTypeError(f"expected true|false, got {value!r}")
+
+
+def parse_subject_list(value: str) -> List[str]:
+    """Parse a comma-separated "<subject_1>,<subject_2>,..." argument."""
+    subjects = [subject.strip() for subject in value.split(",")]
+    subjects = [subject for subject in subjects if subject]
+    if not subjects:
+        raise argparse.ArgumentTypeError(f"expected one or more subjects, got {value!r}")
+    return subjects

@@ -15,6 +15,9 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
 [project.scripts]
 bl_server = "software_bus.bl_server:main"
 bl_client = "software_bus.bl_client:main"
+ps_server = "software_bus.ps_server:main"
+ps_subscribe = "software_bus.ps_subscribe:main"
+ps_publish = "software_bus.ps_publish:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

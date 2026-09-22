@@ -214,6 +214,34 @@ python -m software_bus.bl_client --upstream 127.0.0.1:8787 --time-stamp false
 If installed (`pip install -e .`), both are also available as the
 `bl_server` and `bl_client` commands directly.
 
+`ps_server` runs a publish/subscribe bus node, the same way `bl_server`
+runs a plain one:
+
+```
+python -m software_bus.ps_server --listen 127.0.0.1:8787
+python -m software_bus.ps_server --upstream 10.0.0.1:8787 --listen 127.0.0.1:8787
+```
+
+`ps_subscribe` connects to a `ps_server`, subscribes to one or more
+comma-separated subjects, and prints `subject: payload` for each publish it
+receives, with a time stamp by default (`--time-stamp false` to omit it):
+
+```
+python -m software_bus.ps_subscribe --upstream 127.0.0.1:8787 --subject "a.b,a.c"
+```
+
+`ps_publish` connects to a `ps_server` and publishes a message under a
+subject, `--repeat-count`/`--repeat-interval` times like `bl_client`:
+
+```
+python -m software_bus.ps_publish --upstream 127.0.0.1:8787 --subject "a.b" --message "hello"
+python -m software_bus.ps_publish --upstream 127.0.0.1:8787 --subject "a.b" --message "ping" \
+    --repeat-count 5 --repeat-interval 0.5
+```
+
+If installed (`pip install -e .`), these are also available as the
+`ps_server`, `ps_subscribe`, and `ps_publish` commands directly.
+
 ## Project layout
 
 ```
@@ -224,5 +252,8 @@ src/software_bus/
     pubsub.py       PubSubNode, PubSubClient
     bl_server.py    bl_server CLI
     bl_client.py    bl_client CLI
+    ps_server.py    ps_server CLI
+    ps_subscribe.py ps_subscribe CLI
+    ps_publish.py   ps_publish CLI
 tests/          pytest test suite
 ```

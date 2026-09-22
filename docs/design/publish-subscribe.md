@@ -56,3 +56,32 @@
     - Upon receiving a subscription message, call the subscribe callback with the subject and a subscribe state as parameters.
         - The subscribe state will be true if the content of the message is subscribe, and false if the content of the message is unsubscribe.
     - Upon receiving a publish message, call the publish callback with the subject and the payload as the parameters.
+
+## ps_server Script
+
+- Create an instance of the Publish and Subscribe Node Class.
+- Connect to zero or more upstream server.
+    - parameter --upstream ip:port (default: None)
+- Accepting connection from zero or more downstream client.
+    - parameter --listen ip:port (default: None)
+
+## ps_subscribe Script
+
+- Create an instance of the Publish and Subscribe Client Class.
+- Connect to an upstream server.
+    - parameter --upstream ip:port (default: as per default in Base Layer Node Class)
+- Subscribe to one or more subjects
+    - parameter --subject "<subject_1>,<subject_2>,..."
+    - print the subject and the payload received with the publish message with an optional time stamp
+        - parameter --time-stamp true|false (default: true)
+
+## ps_publish Script
+
+- Create an instance of the Publish and Subscribe Client Class.
+- Connect to an upstream server.
+    - parameter --upstream ip:port (default: as per default in Base Layer Node Class)
+- Publish messages.
+    - parameter --subject "subject to publish to"
+    - parameter --message "message to publish"
+    - parameter --repeat-count n (default: 1)
+    - parameter --repeat-interval t (default: 1 sec)
