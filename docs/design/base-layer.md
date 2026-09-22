@@ -1,6 +1,6 @@
 # Base Layer Design
 
-## Base Layer Class
+## Base Layer Node Class
 
 Funcionalities
 
@@ -30,7 +30,7 @@ Functionalities
 
 - **Instantiation** Create an instance of the class
 - **Connect** Create a TCP connection on an IP address and a port number.
-    - The default IP address and port number is the same as the Base Layer Class.
+    - The default IP address and port number is the same as the Base Layer Node Class.
 - **Send** Send data to the TCP connection established.
 - **Register Receive Callback** Provide a function to call when data are received.
     - Default is None, meaning not to call any function.
@@ -38,7 +38,7 @@ Functionalities
 
 ## bl_server Script
 
-- Create an instance of Base Layer Class.
+- Create an instance of Base Layer Node Class.
 - Connect to zero or more upstream bl_server.
     - parameter --upstream ip:port (default: None)
 - Accepting connection from zero or more downstream client.
@@ -48,7 +48,7 @@ Functionalities
 
 - Create an instance of Base Layer Client Class.
 - Connect to an upstream bl_server
-    - parameter --upstream ip:port (default: as per default in Base Layer Class)
+    - parameter --upstream ip:port (default: as per default in Base Layer Node Class)
 - Send messages.
     - parameter --message "message to be send" (default: None, don't send any message)
     - parameter --repeat-count n (default: 1)
