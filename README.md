@@ -224,14 +224,18 @@ python -m software_bus.ps_server --upstream 10.0.0.1:8787 --listen 127.0.0.1:878
 
 `ps_subscribe` connects to a `ps_server`, subscribes to one or more
 comma-separated subjects, and prints `subject: payload` for each publish it
-receives, with a time stamp by default (`--time-stamp false` to omit it):
+receives, with a time stamp by default (`--time-stamp false` to omit it).
+`--subject` defaults to none, meaning it just connects and listens without
+subscribing to anything:
 
 ```
 python -m software_bus.ps_subscribe --upstream 127.0.0.1:8787 --subject "a.b,a.c"
 ```
 
 `ps_publish` connects to a `ps_server` and publishes a message under a
-subject, `--repeat-count`/`--repeat-interval` times like `bl_client`:
+subject, `--repeat-count`/`--repeat-interval` times like `bl_client`.
+`--subject` and `--message` both default to `None`, meaning it connects and
+exits without publishing anything unless both are given:
 
 ```
 python -m software_bus.ps_publish --upstream 127.0.0.1:8787 --subject "a.b" --message "hello"
