@@ -184,3 +184,97 @@ async def test_data_from_upstream_relayed_only_to_downstream():
             await server.wait_closed()
         if downstream_peer is not None:
             await downstream_peer.close()
+
+
+@pytest.mark.asyncio
+async def test_register_downstream_receive_callback_overrides_default_relay():
+    hub = BaseLayer()
+    received = []
+    hub.register_downstream_receive_callback(
+        lambda source, data: received.append(data)
+    )
+    peer_a = peer_b = None
+    try:
+        server = await hub.accept_connection(port=0)
+        hub_port = server.sockets[0].getsockname()[1]
+
+        peer_a = await _open_peer_connection("127.0.0.1", hub_port)
+        peer_b = await _open_peer_connection("127.0.0.1", hub_port)
+        await asyncio.sleep(0.05)
+
+        await peer_a.send(b"hello")
+        await asyncio.sleep(0.05)
+
+        assert received == [b"hello"]
+        # the default relay behaviour must not have also run
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(peer_b.receive(), timeout=0.2)
+    finally:
+        await hub.close()
+        if peer_a is not None:
+            await peer_a.close()
+        if peer_b is not None:
+            await peer_b.close()
+
+
+@pytest.mark.asyncio
+async def test_register_upstream_receive_callback_overrides_default_relay():
+    hub = BaseLayer()
+    received = []
+
+    async def async_callback(source, data):
+        received.append(data)
+
+    hub.register_upstream_receive_callback(async_callback)
+    upstream_server, upstream_connected = await _accept_one_peer_connection()
+    upstream_port = upstream_server.sockets[0].getsockname()[1]
+    downstream_peer = None
+    try:
+        server = await hub.accept_connection(port=0)
+        hub_port = server.sockets[0].getsockname()[1]
+
+        await hub.establish_connection("127.0.0.1", upstream_port)
+        upstream_peer = await asyncio.wait_for(upstream_connected, timeout=1)
+
+        downstream_peer = await _open_peer_connection("127.0.0.1", hub_port)
+        await asyncio.sleep(0.05)
+
+        await upstream_peer.send(b"from-upstream")
+        await asyncio.sleep(0.05)
+
+        assert received == [b"from-upstream"]
+        # the default relay behaviour must not have also run
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(downstream_peer.receive(), timeout=0.2)
+    finally:
+        await hub.close()
+        upstream_server.close()
+        await upstream_server.wait_closed()
+        if downstream_peer is not None:
+            await downstream_peer.close()
+
+
+@pytest.mark.asyncio
+async def test_default_downstream_receive_callback_excludes_source_connection():
+    hub = BaseLayer()
+    peer_a = peer_b = None
+    try:
+        server = await hub.accept_connection(port=0)
+        hub_port = server.sockets[0].getsockname()[1]
+
+        peer_a = await _open_peer_connection("127.0.0.1", hub_port)
+        peer_b = await _open_peer_connection("127.0.0.1", hub_port)
+        await asyncio.sleep(0.05)
+
+        source_connection = hub.downstream_connections[0]
+        await hub._default_downstream_receive_callback(source_connection, b"hi")
+
+        assert await asyncio.wait_for(peer_b.receive(), timeout=1) == b"hi"
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(peer_a.receive(), timeout=0.2)
+    finally:
+        await hub.close()
+        if peer_a is not None:
+            await peer_a.close()
+        if peer_b is not None:
+            await peer_b.close()

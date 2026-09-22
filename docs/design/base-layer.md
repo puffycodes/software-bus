@@ -10,9 +10,15 @@ Funcionalities
     - The instance will not be accepting connections on any IP/port when it is instantiate.
     - If the instance is already accepting connections on the given IP/port, this will do nothing.
 - **Establish Connection** Create a TCP connection to an upstream instance.
+- **Register Upstream Receive Callback** Provide a function to call when data are received from any of the upstream connections.
+    - A default upstream receive callback will be registerd during instantiation.
+        - The default upstream receive callback will re-send the data received from a upstream connection to all the downstream connections.
+- **Register Downstream Receive Callback** Provide a function to call when data are received from any of the downstream connections.
+    - A default downstream receive callback will be registerd during instantiation.
+        - The default downstream receive callback will re-send the data received from a downstream connection to all the upstream connections, as well as all the downstream connections, other than itself.
 - **Action Upon Receiving of Data** Actions depends on the connection that the data is received from.
-    - If the data is received from a downstream connections, re-send it to all the upstream connections, as well as all the downstream connections, other than itself.
-    - If the data is received from a upstream connections, re-send it to all the downstream connections.
+    - If the data is received from an upstream connections, call the upstream receive callback function with the data as a parameter.
+    - If the data is received from a downstream connections, call the downstream receive callback function with the data as a parameter.
 - **Internal Data** Keep the following lists:
     - a list of IP/port that it is accepting connections on.
     - a list of upstream connections.

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,9 @@ class Connection:
             pass
 
 
+ReceiveCallback = Callable[["Connection", bytes], Any]
+
+
 class BaseLayer:
     """Base layer of the software bus.
 
@@ -64,9 +68,23 @@ class BaseLayer:
         self.upstream_connections: List[Connection] = []
         self.downstream_connections: List[Connection] = []
         self._servers: Dict[Address, asyncio.AbstractServer] = {}
+        self._upstream_receive_callback: ReceiveCallback = (
+            self._default_upstream_receive_callback
+        )
+        self._downstream_receive_callback: ReceiveCallback = (
+            self._default_downstream_receive_callback
+        )
 
     def is_accepting(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> bool:
         return (host, port) in self._servers
+
+    def register_upstream_receive_callback(self, callback: ReceiveCallback) -> None:
+        """Set the function to call when data is received from an upstream connection."""
+        self._upstream_receive_callback = callback
+
+    def register_downstream_receive_callback(self, callback: ReceiveCallback) -> None:
+        """Set the function to call when data is received from a downstream connection."""
+        self._downstream_receive_callback = callback
 
     async def accept_connection(
         self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT
@@ -119,28 +137,40 @@ class BaseLayer:
         self, source: Connection, source_list: List[Connection]
     ) -> None:
         from_upstream = source_list is self.upstream_connections
+        callback = (
+            self._upstream_receive_callback
+            if from_upstream
+            else self._downstream_receive_callback
+        )
         try:
             while True:
                 data = await source.receive()
-                await self._relay(source, data, from_upstream=from_upstream)
+                result = callback(source, data)
+                if inspect.isawaitable(result):
+                    await result
         except (asyncio.IncompleteReadError, ConnectionError, asyncio.CancelledError):
             pass
         finally:
             if source in source_list:
                 source_list.remove(source)
 
-    async def _relay(
-        self, source: Connection, data: bytes, *, from_upstream: bool
+    async def _default_upstream_receive_callback(
+        self, source: Connection, data: bytes
     ) -> None:
-        """Re-send data received on `source` per the base layer's routing rule."""
-        if from_upstream:
-            targets = list(self.downstream_connections)
-        else:
-            targets = [
-                *self.upstream_connections,
-                *(c for c in self.downstream_connections if c is not source),
-            ]
+        """Re-send data received from an upstream connection to all downstream connections."""
+        await self._relay_to(list(self.downstream_connections), data)
 
+    async def _default_downstream_receive_callback(
+        self, source: Connection, data: bytes
+    ) -> None:
+        """Re-send data to all upstream connections and other downstream connections."""
+        targets = [
+            *self.upstream_connections,
+            *(c for c in self.downstream_connections if c is not source),
+        ]
+        await self._relay_to(targets, data)
+
+    async def _relay_to(self, targets: List[Connection], data: bytes) -> None:
         for target in targets:
             try:
                 await target.send(data)

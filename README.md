@@ -37,6 +37,11 @@ PYTHONPATH=src python3 -m pytest -v
 
 Accepts downstream connections on one or more IP/port pairs, can connect
 out to an upstream instance, and relays data per the routing rule above.
+Relaying is driven by an upstream and a downstream receive callback, each
+called with the source `Connection` and the received data; the routing
+rule above is just the default behavior of those callbacks, and either can
+be replaced with `register_upstream_receive_callback` /
+`register_downstream_receive_callback`.
 
 ```python
 import asyncio
@@ -52,6 +57,15 @@ async def main():
     await hub.close()
 
 asyncio.run(main())
+```
+
+Override a callback to change how received data is handled, instead of
+the default relay behavior:
+
+```python
+hub.register_downstream_receive_callback(
+    lambda source, data: print("from downstream:", data)
+)
 ```
 
 ### `BaseLayerClient` — a leaf client
