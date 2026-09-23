@@ -24,6 +24,12 @@ def test_bl_server_arg_parser_defaults_to_no_addresses():
     args = bl_server.build_arg_parser().parse_args([])
     assert args.upstream == []
     assert args.listen == []
+    assert args.debug is False
+
+
+def test_bl_server_arg_parser_parses_debug_flag():
+    args = bl_server.build_arg_parser().parse_args(["--debug", "true"])
+    assert args.debug is True
 
 
 def test_bl_server_arg_parser_accumulates_repeated_flags():

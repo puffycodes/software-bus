@@ -65,6 +65,8 @@ Functionalities
     - parameter --upstream ip:port (default: None)
 - Accepting connection from zero or more downstream client.
     - parameter --listen ip:port (default: None)
+- Print logging information
+    - parameter --debug true|false (default: false)
 
 ## bl_client Script
 
