@@ -32,13 +32,17 @@ Every connection (`Connection` dataclass) is framed the same way regardless of w
 
 Connection lifecycle and error handling follows one path no matter where the failure happens: `_relay_loop` (background task per connection, reading and dispatching to the receive callback) and `_relay_to` (used when fanning data out to peers) both funnel every failure — peer dropped, receive failed, send failed — into a single `_handle_connection_error` helper. That helper removes the connection from its list and invokes the registered upstream/downstream *connection error callback* (`register_upstream_connection_error_callback` / `register_downstream_connection_error_callback`; defaults just log). When extending failure handling, hook into `_handle_connection_error` rather than adding ad hoc handling at each call site.
 
+Shared internals to reuse rather than re-inline: `_start_connection` (wraps a new socket in a `Connection`, appends it to the right list, starts its `_relay_loop`), `_connections(from_upstream)` (the matching list), `_peers_except(source)` (every connection but the sender — the flooding target set, also used by pub/sub), and the module-level `_maybe_await` (every user callback may be sync or async; `client.py` and `pubsub.py` import it too).
+
 `BaseLayerClient` is the leaf side: connects once, sends, and dispatches received data to a single registered callback.
 
 ### Publish/Subscribe layer (`pubsub.py`)
 
-`PubSubNode` and `PubSubClient` are built by **composing** a `BaseLayerNode`/`BaseLayerClient` internally (not subclassing) and registering pub/sub-specific receive callbacks on it. The pub/sub wire format is a message-type tag (`0x01` subscription / `0x02` publish) prefixing the base layer's opaque payload — `encode_message`/`decode_message` handle this framing, which lives entirely inside the base layer's payload (no separate outer framing needed).
+`PubSubNode` and `PubSubClient` are built by **composing** a `BaseLayerNode`/`BaseLayerClient` internally (not subclassing) and registering pub/sub-specific receive and connection error callbacks on it. The pub/sub wire format is a message-type tag (`0x01` subscription / `0x02` publish) prefixing the base layer's opaque payload — `encode_message`/`decode_message` handle this framing, which lives entirely inside the base layer's payload (no separate outer framing needed).
 
 `PubSubNode` tracks subscriber interest *per subject* in two dicts (`_downstream_subscriptions`, `_upstream_subscriptions`, each `subject -> [Connection]`), propagating subscribe/unsubscribe messages through the tree (to the opposite side always, and to the same side except the sender) and only forwarding a given publish to connections actually subscribed to that subject — this is the key difference from the base layer's unconditional flooding.
+
+All `PubSubNode` sends go through the base layer's `_relay_to` (via `_send_to`), so send failures reach `_handle_connection_error` like any other. Its connection error callbacks treat a failed connection as an implicit unsubscribe from every subject it held (`_drop_connection`), sharing `_unsubscribe` with explicit unsubscribe messages: once a subject has no subscribers on either side, the unsubscribe is propagated to all remaining connections.
 
 ### CLI scripts
 

@@ -171,6 +171,12 @@ A `PubSubClient` can also react to subscription traffic with
 `register_subscribe_callback(lambda subject, state: ...)`, called with
 `state` `True` for subscribe and `False` for unsubscribe.
 
+A `PubSubNode` treats a failed connection (peer dropped, or a send/receive
+on it failed) as an implicit unsubscribe from every subject that connection
+was subscribed to: it's removed from each subject, and for any subject left
+with no subscribers on either side, an unsubscribe is propagated to the
+remaining connections — exactly as if the peer had unsubscribed itself.
+
 #### Wire format
 
 Each pub/sub message is sent as the base layer's `data` payload (see the
