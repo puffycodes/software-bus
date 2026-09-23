@@ -3,11 +3,17 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from datetime import datetime
 from typing import List, Optional
 
-from ._cli import configure_logging, parse_address, parse_bool, parse_subject_list
-from .base_layer import DEFAULT_HOST, DEFAULT_PORT
+from ._cli import (
+    add_debug_argument,
+    add_upstream_argument,
+    configure_logging,
+    parse_bool,
+    parse_subject_list,
+    print_received,
+    run_until_interrupted,
+)
 from .pubsub import PubSubClient
 
 
@@ -15,13 +21,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Subscribe to subjects on a Publish/Subscribe bus."
     )
-    parser.add_argument(
-        "--upstream",
-        metavar="ip:port",
-        type=parse_address,
-        default=(DEFAULT_HOST, DEFAULT_PORT),
-        help=f"ps_server to connect to (default: {DEFAULT_HOST}:{DEFAULT_PORT})",
-    )
+    add_upstream_argument(parser, "ps_server")
     parser.add_argument(
         "--subject",
         type=parse_subject_list,
@@ -36,21 +36,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         metavar="true|false",
         help="print a time stamp with each received publish (default: true)",
     )
-    parser.add_argument(
-        "--debug",
-        type=parse_bool,
-        default=False,
-        metavar="true|false",
-        help="print logging information (default: false)",
-    )
+    add_debug_argument(parser)
     return parser
-
-
-def _print_received(subject: str, payload: bytes, time_stamp: bool) -> None:
-    text = f"{subject}: {payload.decode(errors='replace')}"
-    if time_stamp:
-        text = f"[{datetime.now().isoformat()}] {text}"
-    print(text, flush=True)
 
 
 async def run(
@@ -61,7 +48,9 @@ async def run(
 ) -> None:
     client = PubSubClient()
     client.register_publish_callback(
-        lambda subject, payload: _print_received(subject, payload, time_stamp)
+        lambda subject, payload: print_received(
+            f"{subject}: {payload.decode(errors='replace')}", time_stamp
+        )
     )
     try:
         await client.connect(host, port)
@@ -76,10 +65,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     args = build_arg_parser().parse_args(argv)
     configure_logging(args.debug)
     host, port = args.upstream
-    try:
-        asyncio.run(run(host, port, args.subject, args.time_stamp))
-    except KeyboardInterrupt:
-        pass
+    run_until_interrupted(run(host, port, args.subject, args.time_stamp))
 
 
 if __name__ == "__main__":

@@ -284,5 +284,6 @@ src/software_bus/
     ps_server.py    ps_server CLI
     ps_subscribe.py ps_subscribe CLI
     ps_publish.py   ps_publish CLI
+    _cli.py         helpers shared by the CLI scripts
 tests/          pytest test suite
 ```

@@ -3,11 +3,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from datetime import datetime
 from typing import List, Optional, Union
 
-from ._cli import configure_logging, parse_address, parse_bool
-from .base_layer import DEFAULT_HOST, DEFAULT_PORT
+from ._cli import (
+    add_debug_argument,
+    add_repeat_arguments,
+    add_upstream_argument,
+    configure_logging,
+    parse_bool,
+    print_received,
+    repeat,
+    run_until_interrupted,
+)
 from .client import BaseLayerClient
 
 
@@ -15,32 +22,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Send messages through a Base Layer bus."
     )
-    parser.add_argument(
-        "--upstream",
-        metavar="ip:port",
-        type=parse_address,
-        default=(DEFAULT_HOST, DEFAULT_PORT),
-        help=f"bl_server to connect to (default: {DEFAULT_HOST}:{DEFAULT_PORT})",
-    )
+    add_upstream_argument(parser, "bl_server")
     parser.add_argument(
         "--message",
         default=None,
         help="message to send (default: None, don't send any message)",
     )
-    parser.add_argument(
-        "--repeat-count",
-        type=int,
-        default=1,
-        metavar="n",
-        help="number of times to send the message (default: 1)",
-    )
-    parser.add_argument(
-        "--repeat-interval",
-        type=float,
-        default=1.0,
-        metavar="t",
-        help="seconds to wait between repeated sends (default: 1)",
-    )
+    add_repeat_arguments(parser, "send")
     parser.add_argument(
         "--time-stamp",
         type=parse_bool,
@@ -48,21 +36,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         metavar="true|false",
         help="print a time stamp with each received message (default: true)",
     )
-    parser.add_argument(
-        "--debug",
-        type=parse_bool,
-        default=False,
-        metavar="true|false",
-        help="print logging information (default: false)",
-    )
+    add_debug_argument(parser)
     return parser
-
-
-def _print_received(data: bytes, time_stamp: bool) -> None:
-    text = data.decode(errors="replace")
-    if time_stamp:
-        text = f"[{datetime.now().isoformat()}] {text}"
-    print(text, flush=True)
 
 
 async def run(
@@ -75,16 +50,13 @@ async def run(
 ) -> None:
     client = BaseLayerClient()
     client.register_receive_callback(
-        lambda data: _print_received(data, time_stamp)
+        lambda data: print_received(data.decode(errors="replace"), time_stamp)
     )
     try:
         await client.connect(host, port)
         if message is not None:
             data = message.encode()
-            for i in range(repeat_count):
-                if i > 0:
-                    await asyncio.sleep(repeat_interval)
-                await client.send(data)
+            await repeat(lambda: client.send(data), repeat_count, repeat_interval)
         await asyncio.Event().wait()
     finally:
         await client.close()
@@ -94,19 +66,16 @@ def main(argv: Optional[List[str]] = None) -> None:
     args = build_arg_parser().parse_args(argv)
     configure_logging(args.debug)
     host, port = args.upstream
-    try:
-        asyncio.run(
-            run(
-                host,
-                port,
-                args.message,
-                args.repeat_count,
-                args.repeat_interval,
-                args.time_stamp,
-            )
+    run_until_interrupted(
+        run(
+            host,
+            port,
+            args.message,
+            args.repeat_count,
+            args.repeat_interval,
+            args.time_stamp,
         )
-    except KeyboardInterrupt:
-        pass
+    )
 
 
 if __name__ == "__main__":

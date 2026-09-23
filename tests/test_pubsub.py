@@ -20,6 +20,19 @@ def test_encode_decode_publish_roundtrip_with_binary_payload():
     assert decoded == message
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        SubscriptionMessage(subject="", subscribe=True),
+        SubscriptionMessage(subject="données.é", subscribe=False),
+        PublishMessage(subject="", payload=b""),
+        PublishMessage(subject="données.é", payload=b""),
+    ],
+)
+def test_encode_decode_roundtrip_edge_cases(message):
+    assert decode_message(encode_message(message)) == message
+
+
 def test_decode_unknown_message_type_raises():
     with pytest.raises(ValueError):
         decode_message(b"\xff")

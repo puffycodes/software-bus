@@ -49,7 +49,7 @@ class BaseLayerClient:
             while True:
                 data = await connection.receive()
                 await self._on_data_received(data)
-        except (asyncio.IncompleteReadError, ConnectionError, asyncio.CancelledError):
+        except (asyncio.IncompleteReadError, OSError, asyncio.CancelledError):
             pass
 
     async def _on_data_received(self, data: bytes) -> None:

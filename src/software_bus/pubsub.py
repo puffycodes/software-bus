@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from .base_layer import DEFAULT_HOST, DEFAULT_PORT, BaseLayerNode, Connection, _maybe_await
 from .client import BaseLayerClient
@@ -56,20 +56,23 @@ def encode_message(message: Message) -> bytes:
     raise TypeError(f"unsupported message type: {type(message)!r}")
 
 
+def _decode_subject(data: bytes, offset: int) -> Tuple[str, int]:
+    """Decode the length-prefixed subject at `offset`; return it and the offset after it."""
+    subject_start = offset + _SUBJECT_LENGTH_SIZE
+    subject_length = int.from_bytes(data[offset:subject_start], "big")
+    subject_end = subject_start + subject_length
+    return data[subject_start:subject_end].decode("utf-8"), subject_end
+
+
 def decode_message(data: bytes) -> Message:
     msg_type = data[0]
     if msg_type == _MSG_SUBSCRIPTION:
         subscribe = data[1] == 1
-        subject_length = int.from_bytes(data[2 : 2 + _SUBJECT_LENGTH_SIZE], "big")
-        subject_start = 2 + _SUBJECT_LENGTH_SIZE
-        subject = data[subject_start : subject_start + subject_length].decode("utf-8")
+        subject, _ = _decode_subject(data, 2)
         return SubscriptionMessage(subject=subject, subscribe=subscribe)
     if msg_type == _MSG_PUBLISH:
-        subject_length = int.from_bytes(data[1 : 1 + _SUBJECT_LENGTH_SIZE], "big")
-        subject_start = 1 + _SUBJECT_LENGTH_SIZE
-        subject = data[subject_start : subject_start + subject_length].decode("utf-8")
-        payload = data[subject_start + subject_length :]
-        return PublishMessage(subject=subject, payload=payload)
+        subject, payload_start = _decode_subject(data, 1)
+        return PublishMessage(subject=subject, payload=data[payload_start:])
     raise ValueError(f"unknown pub/sub message type: {msg_type!r}")
 
 

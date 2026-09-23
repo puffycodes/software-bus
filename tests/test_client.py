@@ -134,3 +134,25 @@ async def test_client_send_without_connect_raises():
     client = BaseLayerClient()
     with pytest.raises(RuntimeError):
         await client.send(b"data")
+
+
+@pytest.mark.asyncio
+async def test_client_receive_loop_ends_quietly_on_os_error(monkeypatch):
+    hub = BaseLayerNode()
+    client = BaseLayerClient()
+    try:
+        server = await hub.accept_connection(port=0)
+        bound_port = server.sockets[0].getsockname()[1]
+        connection = await client.connect("127.0.0.1", bound_port)
+        connection.background_task.cancel()
+
+        async def failing_receive():
+            raise OSError("socket failure that is not a ConnectionError")
+
+        monkeypatch.setattr(connection, "receive", failing_receive)
+
+        # Must return normally rather than propagate the OSError.
+        await client._receive_loop(connection)
+    finally:
+        await client.close()
+        await hub.close()

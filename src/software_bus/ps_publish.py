@@ -2,11 +2,16 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 from typing import List, Optional
 
-from ._cli import configure_logging, parse_address, parse_bool
-from .base_layer import DEFAULT_HOST, DEFAULT_PORT
+from ._cli import (
+    add_debug_argument,
+    add_repeat_arguments,
+    add_upstream_argument,
+    configure_logging,
+    repeat,
+    run_until_interrupted,
+)
 from .pubsub import PubSubClient
 
 
@@ -14,13 +19,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Publish messages on a Publish/Subscribe bus."
     )
-    parser.add_argument(
-        "--upstream",
-        metavar="ip:port",
-        type=parse_address,
-        default=(DEFAULT_HOST, DEFAULT_PORT),
-        help=f"ps_server to connect to (default: {DEFAULT_HOST}:{DEFAULT_PORT})",
-    )
+    add_upstream_argument(parser, "ps_server")
     parser.add_argument(
         "--subject",
         required=True,
@@ -31,27 +30,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         required=True,
         help="message to publish",
     )
-    parser.add_argument(
-        "--repeat-count",
-        type=int,
-        default=1,
-        metavar="n",
-        help="number of times to publish the message (default: 1)",
-    )
-    parser.add_argument(
-        "--repeat-interval",
-        type=float,
-        default=1.0,
-        metavar="t",
-        help="seconds to wait between repeated publishes (default: 1)",
-    )
-    parser.add_argument(
-        "--debug",
-        type=parse_bool,
-        default=False,
-        metavar="true|false",
-        help="print logging information (default: false)",
-    )
+    add_repeat_arguments(parser, "publish")
+    add_debug_argument(parser)
     return parser
 
 
@@ -67,10 +47,7 @@ async def run(
     try:
         await client.connect(host, port)
         payload = message.encode()
-        for i in range(repeat_count):
-            if i > 0:
-                await asyncio.sleep(repeat_interval)
-            await client.publish(subject, payload)
+        await repeat(lambda: client.publish(subject, payload), repeat_count, repeat_interval)
     finally:
         await client.close()
 
@@ -79,19 +56,16 @@ def main(argv: Optional[List[str]] = None) -> None:
     args = build_arg_parser().parse_args(argv)
     configure_logging(args.debug)
     host, port = args.upstream
-    try:
-        asyncio.run(
-            run(
-                host,
-                port,
-                args.subject,
-                args.message,
-                args.repeat_count,
-                args.repeat_interval,
-            )
+    run_until_interrupted(
+        run(
+            host,
+            port,
+            args.subject,
+            args.message,
+            args.repeat_count,
+            args.repeat_interval,
         )
-    except KeyboardInterrupt:
-        pass
+    )
 
 
 if __name__ == "__main__":

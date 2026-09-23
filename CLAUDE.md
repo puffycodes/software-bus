@@ -46,7 +46,7 @@ All `PubSubNode` sends go through the base layer's `_relay_to` (via `_send_to`),
 
 ### CLI scripts
 
-`bl_server`/`bl_client`/`ps_server`/`ps_subscribe`/`ps_publish` are thin argparse wrappers around the classes above; shared parsing lives in `_cli.py` (`parse_address` for `ip:port`, `parse_bool` for `true|false` flags, `parse_subject_list` for comma-separated subjects, `configure_logging` for the shared `--debug` flag). Each script's `run(...)` coroutine is unit-tested directly (see `tests/test_scripts.py`, `tests/test_ps_scripts.py`) separately from its `build_arg_parser()`.
+`bl_server`/`bl_client`/`ps_server`/`ps_subscribe`/`ps_publish` are thin argparse wrappers around the classes above; everything they share lives in `_cli.py`: value parsers (`parse_address` for `ip:port`, `parse_bool` for `true|false` flags, `parse_subject_list` for comma-separated subjects), argument builders (`add_debug_argument`, `add_upstream_argument`, `add_repeat_arguments`, and `build_server_arg_parser` for both servers), and runtime helpers (`configure_logging`, `run_server`, `repeat`, `print_received`, `run_until_interrupted`). `bl_server`/`ps_server` differ only in the node class they pass to `run_server`. Add new shared options/behaviour there rather than copying it into each script. Each script's `run(...)` coroutine is unit-tested directly (see `tests/test_scripts.py`, `tests/test_ps_scripts.py`) separately from its `build_arg_parser()`; the shared `_cli.py` helpers, and options every script must accept (e.g. `--debug`), are tested in `tests/test_cli.py`.
 
 ### Testing conventions
 
