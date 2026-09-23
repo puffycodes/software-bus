@@ -6,7 +6,7 @@ import asyncio
 from datetime import datetime
 from typing import List, Optional, Union
 
-from ._cli import parse_address, parse_bool
+from ._cli import configure_logging, parse_address, parse_bool
 from .base_layer import DEFAULT_HOST, DEFAULT_PORT
 from .client import BaseLayerClient
 
@@ -48,6 +48,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         metavar="true|false",
         help="print a time stamp with each received message (default: true)",
     )
+    parser.add_argument(
+        "--debug",
+        type=parse_bool,
+        default=False,
+        metavar="true|false",
+        help="print logging information (default: false)",
+    )
     return parser
 
 
@@ -85,6 +92,7 @@ async def run(
 
 def main(argv: Optional[List[str]] = None) -> None:
     args = build_arg_parser().parse_args(argv)
+    configure_logging(args.debug)
     host, port = args.upstream
     try:
         asyncio.run(

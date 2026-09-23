@@ -5,7 +5,7 @@ import argparse
 import asyncio
 from typing import List, Optional, Tuple
 
-from ._cli import parse_address
+from ._cli import configure_logging, parse_address, parse_bool
 from .pubsub import PubSubNode
 
 
@@ -27,6 +27,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=[],
         help="accept downstream connections on ip:port; may be given multiple times",
     )
+    parser.add_argument(
+        "--debug",
+        type=parse_bool,
+        default=False,
+        metavar="true|false",
+        help="print logging information (default: false)",
+    )
     return parser
 
 
@@ -47,6 +54,7 @@ async def run(
 
 def main(argv: Optional[List[str]] = None) -> None:
     args = build_arg_parser().parse_args(argv)
+    configure_logging(args.debug)
     try:
         asyncio.run(run(args.upstream, args.listen))
     except KeyboardInterrupt:

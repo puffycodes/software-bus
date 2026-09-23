@@ -64,6 +64,8 @@
     - parameter --upstream ip:port (default: None)
 - Accepting connection from zero or more downstream client.
     - parameter --listen ip:port (default: None)
+- Print logging information
+    - parameter --debug true|false (default: false)
 
 ## ps_subscribe Script
 
@@ -74,6 +76,8 @@
     - parameter --subject "<subject_1>,<subject_2>,..." (required)
     - print the subject and the payload received with the publish message with an optional time stamp
         - parameter --time-stamp true|false (default: true)
+- Print logging information
+    - parameter --debug true|false (default: false)
 
 ## ps_publish Script
 
@@ -85,3 +89,5 @@
     - parameter --message "message to publish" (required)
     - parameter --repeat-count n (default: 1)
     - parameter --repeat-interval t (default: 1 sec)
+- Print logging information
+    - parameter --debug true|false (default: false)

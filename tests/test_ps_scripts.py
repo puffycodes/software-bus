@@ -24,6 +24,7 @@ def test_ps_server_arg_parser_defaults_to_no_addresses():
     args = ps_server.build_arg_parser().parse_args([])
     assert args.upstream == []
     assert args.listen == []
+    assert args.debug is False
 
 
 def test_ps_server_arg_parser_accumulates_repeated_flags():
@@ -44,6 +45,7 @@ def test_ps_subscribe_arg_parser_parses_comma_separated_subjects():
     assert args.upstream == (DEFAULT_HOST, DEFAULT_PORT)
     assert args.subject == ["a.b", "c.d", "e.f"]
     assert args.time_stamp is True
+    assert args.debug is False
 
 
 def test_ps_publish_arg_parser_requires_subject_and_message():
@@ -72,6 +74,7 @@ def test_ps_publish_arg_parser_custom_options():
     assert args.message == "hi"
     assert args.repeat_count == 3
     assert args.repeat_interval == 0.5
+    assert args.debug is False
 
 
 @pytest.mark.asyncio

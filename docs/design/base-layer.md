@@ -80,3 +80,5 @@ Functionalities
 - Listen for any receieved message.
     - print the message received with an optional time stamp
         - parameter --time-stamp true|false (default: true)
+- Print logging information
+    - parameter --debug true|false (default: false)

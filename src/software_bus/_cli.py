@@ -1,7 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from typing import List, Tuple
+
+
+def configure_logging(debug: bool) -> None:
+    """Enable INFO-level logging output when --debug is set."""
+    if debug:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        )
 
 
 def parse_address(value: str) -> Tuple[str, int]:

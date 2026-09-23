@@ -53,6 +53,7 @@ def test_bl_client_arg_parser_defaults_match_base_layer_defaults():
     assert args.message == "hi"
     assert args.repeat_count == 1
     assert args.repeat_interval == 1.0
+    assert args.debug is False
 
 
 def test_bl_client_arg_parser_custom_repeat_options():
