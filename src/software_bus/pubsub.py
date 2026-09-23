@@ -9,12 +9,11 @@ Wire format for the payload carried by each base-layer message:
 """
 from __future__ import annotations
 
-import inspect
 import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from .base_layer import DEFAULT_HOST, DEFAULT_PORT, BaseLayerNode, Connection
+from .base_layer import DEFAULT_HOST, DEFAULT_PORT, BaseLayerNode, Connection, _maybe_await
 from .client import BaseLayerClient
 
 logger = logging.getLogger(__name__)
@@ -183,17 +182,7 @@ class PubSubNode:
         )
         if message.subscribe:
             _add_subscriber(own_subscriptions, subject, source)
-            if from_upstream:
-                targets = [
-                    *self._base.downstream_connections,
-                    *(c for c in self._base.upstream_connections if c is not source),
-                ]
-            else:
-                targets = [
-                    *(c for c in self._base.downstream_connections if c is not source),
-                    *self._base.upstream_connections,
-                ]
-            await self._send_to(targets, message)
+            await self._send_to(self._base._peers_except(source), message)
         else:
             await self._unsubscribe(own_subscriptions, subject, source)
 
@@ -274,14 +263,10 @@ class PubSubClient:
         message = decode_message(data)
         if isinstance(message, SubscriptionMessage):
             if self._subscribe_callback is not None:
-                result = self._subscribe_callback(message.subject, message.subscribe)
-                if inspect.isawaitable(result):
-                    await result
+                await _maybe_await(self._subscribe_callback(message.subject, message.subscribe))
         elif isinstance(message, PublishMessage):
             if self._publish_callback is not None:
-                result = self._publish_callback(message.subject, message.payload)
-                if inspect.isawaitable(result):
-                    await result
+                await _maybe_await(self._publish_callback(message.subject, message.payload))
 
     async def __aenter__(self) -> "PubSubClient":
         return self

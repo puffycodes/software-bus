@@ -55,6 +55,12 @@ ReceiveCallback = Callable[["Connection", bytes], Any]
 ConnectionErrorCallback = Callable[["Connection", Optional[BaseException]], Any]
 
 
+async def _maybe_await(result: Any) -> None:
+    """Await `result` if a callback returned an awaitable (i.e. it was async)."""
+    if inspect.isawaitable(result):
+        await result
+
+
 class BaseLayerNode:
     """Base layer of the software bus.
 
@@ -131,12 +137,8 @@ class BaseLayerNode:
     async def _on_downstream_connected(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
-        connection = Connection(reader, writer)
-        self.downstream_connections.append(connection)
+        connection = self._start_connection(reader, writer, from_upstream=False)
         logger.info("Accepted downstream connection from %s", connection.address)
-        connection.background_task = asyncio.ensure_future(
-            self._relay_loop(connection, self.downstream_connections)
-        )
 
     async def establish_connection(self, host: str, port: int) -> Connection:
         """Open a TCP connection to an upstream instance.
@@ -144,18 +146,36 @@ class BaseLayerNode:
         The resulting connection is appended to `upstream_connections`.
         """
         reader, writer = await asyncio.open_connection(host, port)
-        connection = Connection(reader, writer)
-        self.upstream_connections.append(connection)
+        connection = self._start_connection(reader, writer, from_upstream=True)
         logger.info("Established upstream connection to %s:%s", host, port)
+        return connection
+
+    def _start_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        from_upstream: bool,
+    ) -> Connection:
+        """Track a new connection in its list and start its relay loop."""
+        connection = Connection(reader, writer)
+        self._connections(from_upstream).append(connection)
         connection.background_task = asyncio.ensure_future(
-            self._relay_loop(connection, self.upstream_connections)
+            self._relay_loop(connection, from_upstream)
         )
         return connection
 
-    async def _relay_loop(
-        self, source: Connection, source_list: List[Connection]
-    ) -> None:
-        from_upstream = source_list is self.upstream_connections
+    def _connections(self, from_upstream: bool) -> List[Connection]:
+        return self.upstream_connections if from_upstream else self.downstream_connections
+
+    def _peers_except(self, source: Connection) -> List[Connection]:
+        """All downstream and upstream connections other than `source`."""
+        return [
+            c
+            for c in (*self.downstream_connections, *self.upstream_connections)
+            if c is not source
+        ]
+
+    async def _relay_loop(self, source: Connection, from_upstream: bool) -> None:
         callback = (
             self._upstream_receive_callback
             if from_upstream
@@ -165,9 +185,7 @@ class BaseLayerNode:
         try:
             while True:
                 data = await source.receive()
-                result = callback(source, data)
-                if inspect.isawaitable(result):
-                    await result
+                await _maybe_await(callback(source, data))
         except (asyncio.IncompleteReadError, OSError, asyncio.CancelledError) as exc:
             error = exc
         finally:
@@ -176,9 +194,7 @@ class BaseLayerNode:
     async def _handle_connection_error(
         self, connection: Connection, from_upstream: bool, error: Optional[BaseException]
     ) -> None:
-        source_list = (
-            self.upstream_connections if from_upstream else self.downstream_connections
-        )
+        source_list = self._connections(from_upstream)
         if connection in source_list:
             source_list.remove(connection)
             error_callback = (
@@ -186,29 +202,19 @@ class BaseLayerNode:
                 if from_upstream
                 else self._downstream_connection_error_callback
             )
-            result = error_callback(connection, error)
-            if inspect.isawaitable(result):
-                await result
+            await _maybe_await(error_callback(connection, error))
 
     async def _default_upstream_receive_callback(
         self, source: Connection, data: bytes
     ) -> None:
         """Re-send data to all downstream connections and other upstream connections."""
-        targets = [
-            *self.downstream_connections,
-            *(c for c in self.upstream_connections if c is not source),
-        ]
-        await self._relay_to(targets, data)
+        await self._relay_to(self._peers_except(source), data)
 
     async def _default_downstream_receive_callback(
         self, source: Connection, data: bytes
     ) -> None:
         """Re-send data to all upstream connections and other downstream connections."""
-        targets = [
-            *self.upstream_connections,
-            *(c for c in self.downstream_connections if c is not source),
-        ]
-        await self._relay_to(targets, data)
+        await self._relay_to(self._peers_except(source), data)
 
     async def _default_upstream_connection_error_callback(
         self, connection: Connection, error: Optional[BaseException]

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
 from typing import Any, Callable, Optional
 
-from .base_layer import DEFAULT_HOST, DEFAULT_PORT, Connection
+from .base_layer import DEFAULT_HOST, DEFAULT_PORT, Connection, _maybe_await
 
 logger = logging.getLogger(__name__)
 
@@ -54,11 +53,8 @@ class BaseLayerClient:
             pass
 
     async def _on_data_received(self, data: bytes) -> None:
-        if self._receive_callback is None:
-            return
-        result = self._receive_callback(data)
-        if inspect.isawaitable(result):
-            await result
+        if self._receive_callback is not None:
+            await _maybe_await(self._receive_callback(data))
 
     async def close(self) -> None:
         if self.connection is not None:
