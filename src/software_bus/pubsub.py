@@ -108,6 +108,12 @@ class PubSubNode:
         self._base = BaseLayerNode()
         self._base.register_upstream_receive_callback(self._on_upstream_receive)
         self._base.register_downstream_receive_callback(self._on_downstream_receive)
+        self._base.register_upstream_connection_error_callback(
+            self._on_upstream_connection_error
+        )
+        self._base.register_downstream_connection_error_callback(
+            self._on_downstream_connection_error
+        )
         self._downstream_subscriptions: Dict[str, List[Connection]] = {}
         self._upstream_subscriptions: Dict[str, List[Connection]] = {}
 
@@ -135,6 +141,30 @@ class PubSubNode:
 
     async def _on_upstream_receive(self, source: Connection, data: bytes) -> None:
         await self._handle_message(source, decode_message(data), from_upstream=True)
+
+    async def _on_downstream_connection_error(
+        self, connection: Connection, error: Optional[BaseException]
+    ) -> None:
+        logger.info("A downstream connection has error: %s (%s)", connection.address, error)
+        await self._drop_connection(connection, self._downstream_subscriptions)
+
+    async def _on_upstream_connection_error(
+        self, connection: Connection, error: Optional[BaseException]
+    ) -> None:
+        logger.info("An upstream connection has error: %s (%s)", connection.address, error)
+        await self._drop_connection(connection, self._upstream_subscriptions)
+
+    async def _drop_connection(
+        self, connection: Connection, subscriptions: Dict[str, List[Connection]]
+    ) -> None:
+        """Remove a failed connection from every subject and propagate unsubscribes."""
+        subjects = [
+            subject
+            for subject, connections in subscriptions.items()
+            if any(c is connection for c in connections)
+        ]
+        for subject in subjects:
+            await self._unsubscribe(subscriptions, subject, connection)
 
     async def _handle_message(
         self, source: Connection, message: Message, *, from_upstream: bool
@@ -165,13 +195,21 @@ class PubSubNode:
                 ]
             await self._send_to(targets, message)
         else:
-            became_empty = _discard_subscriber(own_subscriptions, subject, source)
-            if became_empty and not self._has_subscribers(subject):
-                targets = [
-                    *self._base.downstream_connections,
-                    *self._base.upstream_connections,
-                ]
-                await self._send_to(targets, message)
+            await self._unsubscribe(own_subscriptions, subject, source)
+
+    async def _unsubscribe(
+        self,
+        subscriptions: Dict[str, List[Connection]],
+        subject: str,
+        connection: Connection,
+    ) -> None:
+        became_empty = _discard_subscriber(subscriptions, subject, connection)
+        if became_empty and not self._has_subscribers(subject):
+            targets = [
+                *self._base.downstream_connections,
+                *self._base.upstream_connections,
+            ]
+            await self._send_to(targets, SubscriptionMessage(subject, subscribe=False))
 
     def _has_subscribers(self, subject: str) -> bool:
         return bool(self._downstream_subscriptions.get(subject)) or bool(
@@ -186,12 +224,7 @@ class PubSubNode:
         await self._send_to(targets, message)
 
     async def _send_to(self, targets: List[Connection], message: Message) -> None:
-        data = encode_message(message)
-        for target in targets:
-            try:
-                await target.send(data)
-            except ConnectionError:
-                logger.warning("Failed to send to %s", target.address)
+        await self._base._relay_to(targets, encode_message(message))
 
     async def __aenter__(self) -> "PubSubNode":
         await self.accept_connection()

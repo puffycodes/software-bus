@@ -17,6 +17,7 @@
 
 - Use Base Layer Node class for the sending and receiving of data.
     - Register the necessary upstream and downstream receive callbacks to achieve its job.
+    - Register the necessary upstream and downstream connection error callbacks.
 
 - **Instantiation** Create an instance of the class
 - **Message Processing**
@@ -34,11 +35,13 @@
             - Remove the connection from the downstream connection list tagged to the subject.
         - If the message comes from an upstream connection:
             - Remove the connection from the upstream connection list tagged to the subject.
-        - In both scenarios, if the resulted downstream connection list **and** the upstream connection list tagged to the subject is empty, send a unscribe message to all the downstream and upstream connections.
+        - In both scenarios, if the resulted downstream connection list **and** the upstream connection list tagged to the subject is empty, send a unsubscribe message to all the downstream and upstream connections.
     - Upon receiving of a publish message.
         - Send a publish message to all the connections in the following lists that are tagged to the subject.
             - The downstream connection list.
             - The upstream connection list.
+- **Exception Handling**
+    - When error occurs on a connection, remove the connection from every subject and propagate unsubscribes.
 
 ## Publish and Subscribe Client Class
 

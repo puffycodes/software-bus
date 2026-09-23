@@ -267,3 +267,74 @@ async def test_subscribe_callback_supports_async_callback():
         await first.close()
         await second.close()
         await node.close()
+
+
+@pytest.mark.asyncio
+async def test_downstream_disconnect_removes_subscription_and_propagates_unsubscribe():
+    root = PubSubNode()
+    mid = PubSubNode()
+    subscriber = PubSubClient()
+    try:
+        root_server = await root.accept_connection(port=0)
+        root_port = root_server.sockets[0].getsockname()[1]
+
+        mid_server = await mid.accept_connection(port=0)
+        mid_port = mid_server.sockets[0].getsockname()[1]
+        await mid.establish_connection("127.0.0.1", root_port)
+        await asyncio.sleep(0.05)
+
+        await subscriber.connect("127.0.0.1", mid_port)
+        await asyncio.sleep(0.05)
+        await subscriber.subscribe("a.b")
+        await asyncio.sleep(0.1)
+        assert list(root._downstream_subscriptions.keys()) == ["a.b"]
+
+        await subscriber.close()
+        await asyncio.sleep(0.1)
+
+        assert mid.downstream_connections == []
+        assert mid._downstream_subscriptions == {}
+        assert root._downstream_subscriptions == {}
+    finally:
+        await subscriber.close()
+        await mid.close()
+        await root.close()
+
+
+@pytest.mark.asyncio
+async def test_upstream_disconnect_removes_subscription_and_propagates_unsubscribe():
+    root = PubSubNode()
+    mid = PubSubNode()
+    root_subscriber = PubSubClient()
+    mid_client = PubSubClient()
+    subscriptions = []
+    try:
+        root_server = await root.accept_connection(port=0)
+        root_port = root_server.sockets[0].getsockname()[1]
+
+        mid_server = await mid.accept_connection(port=0)
+        mid_port = mid_server.sockets[0].getsockname()[1]
+        await mid.establish_connection("127.0.0.1", root_port)
+        await asyncio.sleep(0.05)
+
+        mid_client.register_subscribe_callback(
+            lambda subject, subscribe: subscriptions.append((subject, subscribe))
+        )
+        await mid_client.connect("127.0.0.1", mid_port)
+        await root_subscriber.connect("127.0.0.1", root_port)
+        await asyncio.sleep(0.05)
+        await root_subscriber.subscribe("a.b")
+        await asyncio.sleep(0.1)
+        assert list(mid._upstream_subscriptions.keys()) == ["a.b"]
+
+        await root.close()
+        await asyncio.sleep(0.1)
+
+        assert mid.upstream_connections == []
+        assert mid._upstream_subscriptions == {}
+        assert subscriptions == [("a.b", True), ("a.b", False)]
+    finally:
+        await root_subscriber.close()
+        await mid_client.close()
+        await mid.close()
+        await root.close()
