@@ -5,20 +5,42 @@
 Funcionalities
 
 - **Instantiation** Create an instance of the class.
+
 - **Accept Connection** Start accepting TCP connections from downstream instances on a given IP address (default 127.0.0.1) and a give port (default 8787).
     - The instance can accept connections on multiple IP/port pairs.
     - The instance will not be accepting connections on any IP/port when it is instantiate.
     - If the instance is already accepting connections on the given IP/port, this will do nothing.
 - **Establish Connection** Create a TCP connection to an upstream instance.
+
 - **Register Upstream Receive Callback** Provide a function to call when data are received from any of the upstream connections.
     - A default upstream receive callback will be registerd during instantiation.
         - The default upstream receive callback will re-send the data received from a upstream connection to all the downstream connections, as well as all the upstream connections, other than itself.
 - **Register Downstream Receive Callback** Provide a function to call when data are received from any of the downstream connections.
     - A default downstream receive callback will be registerd during instantiation.
         - The default downstream receive callback will re-send the data received from a downstream connection to all the upstream connections, as well as all the downstream connections, other than itself.
-- **Action Upon Receiving of Data** Actions depends on the connection that the data is received from.
+- **Action Upon Receiving of Data** Action depends on the connection that the data is received from.
     - If the data is received from an upstream connections, call the upstream receive callback function with the data as a parameter.
     - If the data is received from a downstream connections, call the downstream receive callback function with the data as a parameter.
+
+- **Register Upstream Connection Error Callback** Provide a function to call when there is error with an upstream connection.
+    - A default upstream connection error callback will be registered during instantiation.
+        - Print a message to indicate that an upstream connection has error, with the necessary details.
+- **Register Downstream Connection Error Callback** Provide a function to call when there is error with a downstream connection.
+    - A default downstream connection error callback will be registered during instantiation.
+        - Print a message to indicate that a downstream connection has error, with the necessary details.
+- **Exceptions Related to a Connection**
+    - Handling the following exception types:
+        - Peer dropped connection.
+        - Failure to send data to a connection.
+        - Failure to receive data from a connection.
+    - Action depends on whether it is an upstream connection or a downstream connection.
+        - If it is an upstream connection:
+            - Remove the upstream connection from the list of upstream connection.
+            - Call the upstream connection error callback with the connection details and error.
+        - If it is a downstream connection:
+            - Remove the downstream connection from the list of downstream connections.
+            - Call the downstream connection error callback with the connection details and error.
+
 - **Internal Data** Keep the following lists:
     - a list of IP/port that it is accepting connections on.
     - a list of upstream connections.

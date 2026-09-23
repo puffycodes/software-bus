@@ -52,6 +52,7 @@ class Connection:
 
 
 ReceiveCallback = Callable[["Connection", bytes], Any]
+ConnectionErrorCallback = Callable[["Connection", Optional[BaseException]], Any]
 
 
 class BaseLayerNode:
@@ -74,6 +75,12 @@ class BaseLayerNode:
         self._downstream_receive_callback: ReceiveCallback = (
             self._default_downstream_receive_callback
         )
+        self._upstream_connection_error_callback: ConnectionErrorCallback = (
+            self._default_upstream_connection_error_callback
+        )
+        self._downstream_connection_error_callback: ConnectionErrorCallback = (
+            self._default_downstream_connection_error_callback
+        )
 
     def is_accepting(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> bool:
         return (host, port) in self._servers
@@ -85,6 +92,18 @@ class BaseLayerNode:
     def register_downstream_receive_callback(self, callback: ReceiveCallback) -> None:
         """Set the function to call when data is received from a downstream connection."""
         self._downstream_receive_callback = callback
+
+    def register_upstream_connection_error_callback(
+        self, callback: ConnectionErrorCallback
+    ) -> None:
+        """Set the function to call when there is an error with an upstream connection."""
+        self._upstream_connection_error_callback = callback
+
+    def register_downstream_connection_error_callback(
+        self, callback: ConnectionErrorCallback
+    ) -> None:
+        """Set the function to call when there is an error with a downstream connection."""
+        self._downstream_connection_error_callback = callback
 
     async def accept_connection(
         self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT
@@ -142,17 +161,34 @@ class BaseLayerNode:
             if from_upstream
             else self._downstream_receive_callback
         )
+        error: Optional[BaseException] = None
         try:
             while True:
                 data = await source.receive()
                 result = callback(source, data)
                 if inspect.isawaitable(result):
                     await result
-        except (asyncio.IncompleteReadError, ConnectionError, asyncio.CancelledError):
-            pass
+        except (asyncio.IncompleteReadError, OSError, asyncio.CancelledError) as exc:
+            error = exc
         finally:
-            if source in source_list:
-                source_list.remove(source)
+            await self._handle_connection_error(source, from_upstream, error)
+
+    async def _handle_connection_error(
+        self, connection: Connection, from_upstream: bool, error: Optional[BaseException]
+    ) -> None:
+        source_list = (
+            self.upstream_connections if from_upstream else self.downstream_connections
+        )
+        if connection in source_list:
+            source_list.remove(connection)
+            error_callback = (
+                self._upstream_connection_error_callback
+                if from_upstream
+                else self._downstream_connection_error_callback
+            )
+            result = error_callback(connection, error)
+            if inspect.isawaitable(result):
+                await result
 
     async def _default_upstream_receive_callback(
         self, source: Connection, data: bytes
@@ -174,12 +210,33 @@ class BaseLayerNode:
         ]
         await self._relay_to(targets, data)
 
+    async def _default_upstream_connection_error_callback(
+        self, connection: Connection, error: Optional[BaseException]
+    ) -> None:
+        """Log that an upstream connection has an error."""
+        logger.info(
+            "An upstream connection has error: %s (%s)",
+            connection.address,
+            error,
+        )
+
+    async def _default_downstream_connection_error_callback(
+        self, connection: Connection, error: Optional[BaseException]
+    ) -> None:
+        """Log that a downstream connection has an error."""
+        logger.info(
+            "A downstream connection has error: %s (%s)",
+            connection.address,
+            error,
+        )
+
     async def _relay_to(self, targets: List[Connection], data: bytes) -> None:
         for target in targets:
             try:
                 await target.send(data)
-            except ConnectionError:
-                logger.warning("Failed to relay data to %s", target.address)
+            except OSError as exc:
+                from_upstream = target in self.upstream_connections
+                await self._handle_connection_error(target, from_upstream, exc)
 
     async def close(self) -> None:
         """Stop accepting connections and close all tracked connections."""
