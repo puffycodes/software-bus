@@ -70,6 +70,19 @@ hub.register_downstream_receive_callback(
 )
 ```
 
+When a connection drops, or a send/receive on it fails, it's removed from
+`upstream_connections`/`downstream_connections` and an upstream or
+downstream connection error callback is called with the `Connection` and
+the exception (`None` on a clean shutdown). The default callbacks just log
+the event; override them with `register_upstream_connection_error_callback`
+/ `register_downstream_connection_error_callback` to react instead:
+
+```python
+hub.register_downstream_connection_error_callback(
+    lambda connection, error: print("downstream peer gone:", connection.address, error)
+)
+```
+
 #### Wire format
 
 TCP gives no message boundaries of its own, so every connection (whether
@@ -209,6 +222,14 @@ Received messages are printed with a time stamp by default; pass
 
 ```
 python -m software_bus.bl_client --upstream 127.0.0.1:8787 --time-stamp false
+```
+
+All five command-line tools accept `--debug true` to print `INFO`-level
+logging (connection/disconnection events etc.) to stderr; it's off by
+default:
+
+```
+python -m software_bus.bl_server --listen 127.0.0.1:8787 --debug true
 ```
 
 If installed (`pip install -e .`), both are also available as the
