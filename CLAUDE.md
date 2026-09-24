@@ -22,7 +22,7 @@ No linter/formatter is configured in this repo.
 
 ## Architecture
 
-This is a two-layer TCP bus, where each layer has a **Node** class (a relay/hub, accepts downstream + connects upstream) and a **Client** class (a leaf, connects to one node). The design docs in `docs/design/base-layer.md` and `docs/design/publish-subscribe.md` are the spec these classes implement — when those docs change, `src/software_bus/base_layer.py` / `pubsub.py` (and the corresponding CLI scripts) need to be updated to match, and vice versa.
+This is a two-layer TCP bus, where each layer has a **Node** class (a relay/hub, accepts downstream + connects upstream) and a **Client** class (a leaf, connects to one node). The design docs in `docs/design/base-layer.md` and `docs/design/publish-subscribe.md` are the spec these classes implement, and `docs/design/data-format.md` is the spec for the wire formats they encode/decode — when those docs change, `src/software_bus/base_layer.py` / `pubsub.py` (and the corresponding CLI scripts) need to be updated to match, and vice versa.
 
 ### Base layer (`base_layer.py`, `client.py`)
 

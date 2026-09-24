@@ -12,7 +12,8 @@ all downstream connections and to every other upstream connection.
 See [`docs/design/base-layer.md`](docs/design/base-layer.md) for the full
 design and routing rules, and
 [`docs/design/publish-subscribe.md`](docs/design/publish-subscribe.md) for
-the publish/subscribe layer built on top of it.
+the publish/subscribe layer built on top of it. The wire formats for both
+layers are specified in [`docs/design/data-format.md`](docs/design/data-format.md).
 
 ## Install
 
@@ -84,6 +85,9 @@ hub.register_downstream_connection_error_callback(
 ```
 
 #### Wire format
+
+See [`docs/design/data-format.md`](docs/design/data-format.md) for the
+canonical spec this section summarizes.
 
 TCP gives no message boundaries of its own, so every connection (whether
 it carries raw `BaseLayerClient`/`bl_client` data or an encoded pub/sub
@@ -178,6 +182,9 @@ with no subscribers on either side, an unsubscribe is propagated to the
 remaining connections — exactly as if the peer had unsubscribed itself.
 
 #### Wire format
+
+See [`docs/design/data-format.md`](docs/design/data-format.md) for the
+canonical spec this section summarizes.
 
 Each pub/sub message is sent as the base layer's `data` payload (see the
 base layer wire format above — no additional outer framing is needed
