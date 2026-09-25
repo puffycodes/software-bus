@@ -57,13 +57,15 @@
                 - the subject matched to
                 - the actual subject in the publish message received
                 - the payload in the publish message
-    - Send a subscription message to the upstream node to subscribe or unsubscribe from a given subject.
     - Register the subscription callback under the given subject.
         - A subject can have multiple subscription callbacks.
+    - If this is the first subscription to the given subject, send a subscription message to the upstream node to subscribe the given subject.
 - **Unsubscribe**
     - Parameters:
         - subject to unsubscribe from
-    - Send an unsubscription message to the upstream node to unsubscribe from the given subject.
+        - the corresponding subscription callback to remove
+    - Remove the subscription callback from the given subject in the register.
+    - If the particular subject no long has any subscription callback attached to it, send an unsubscription message to the upstream node to unsubscribe from the given subject.
 - **Publish**
     - Parameters:
         - subject to publish to

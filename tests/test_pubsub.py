@@ -6,6 +6,8 @@ import pytest
 from software_bus import PubSubClient, PubSubNode
 from software_bus.pubsub import PublishMessage, SubscriptionMessage, decode_message, encode_message
 
+from helpers import accept_one_peer_connection
+
 
 def test_encode_decode_subscription_roundtrip():
     for subscribe in (True, False):
@@ -37,6 +39,61 @@ def test_encode_decode_roundtrip_edge_cases(message):
 def test_decode_unknown_message_type_raises():
     with pytest.raises(ValueError):
         decode_message(b"\xff")
+
+
+@pytest.mark.asyncio
+async def test_subscribe_sends_wire_message_only_for_first_callback_on_a_subject():
+    server, connected = await accept_one_peer_connection()
+    port = server.sockets[0].getsockname()[1]
+    client = PubSubClient()
+    try:
+        await client.connect("127.0.0.1", port)
+        peer = await asyncio.wait_for(connected, timeout=1)
+
+        await client.subscribe("a.b", lambda matched, actual, payload: None)
+        await client.subscribe("a.b", lambda matched, actual, payload: None)
+
+        first = await asyncio.wait_for(peer.receive(), timeout=1)
+        assert decode_message(first) == SubscriptionMessage("a.b", subscribe=True)
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(peer.receive(), timeout=0.1)
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_sends_wire_message_only_when_last_callback_removed():
+    server, connected = await accept_one_peer_connection()
+    port = server.sockets[0].getsockname()[1]
+    client = PubSubClient()
+
+    def callback_a(matched, actual, payload):
+        pass
+
+    def callback_b(matched, actual, payload):
+        pass
+
+    try:
+        await client.connect("127.0.0.1", port)
+        peer = await asyncio.wait_for(connected, timeout=1)
+
+        await client.subscribe("a.b", callback_a)
+        await client.subscribe("a.b", callback_b)
+        await asyncio.wait_for(peer.receive(), timeout=1)  # the single subscribe message
+
+        await client.unsubscribe("a.b", callback_a)
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(peer.receive(), timeout=0.1)
+
+        await client.unsubscribe("a.b", callback_b)
+        last = await asyncio.wait_for(peer.receive(), timeout=1)
+        assert decode_message(last) == SubscriptionMessage("a.b", subscribe=False)
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()
 
 
 @pytest.mark.asyncio
@@ -160,14 +217,15 @@ async def test_unsubscribe_stops_further_delivery_and_propagates_upstream():
         await mid.establish_connection("127.0.0.1", root_port)
         await asyncio.sleep(0.05)
 
+        def on_publish(matched, actual, payload):
+            received.append((matched, actual, payload))
+
         await subscriber.connect("127.0.0.1", mid_port)
         await asyncio.sleep(0.05)
-        await subscriber.subscribe(
-            "a.b", lambda matched, actual, payload: received.append((matched, actual, payload))
-        )
+        await subscriber.subscribe("a.b", on_publish)
         await asyncio.sleep(0.1)
 
-        await subscriber.unsubscribe("a.b")
+        await subscriber.unsubscribe("a.b", on_publish)
         await asyncio.sleep(0.1)
 
         assert "a.b" not in mid._downstream_subscriptions
@@ -200,13 +258,16 @@ async def test_unsubscribe_does_not_propagate_while_other_subscribers_remain():
         await subscriber_b.connect("127.0.0.1", port)
         await asyncio.sleep(0.05)
 
-        await subscriber_a.subscribe("a.b", lambda matched, actual, payload: None)
+        def on_publish_a(matched, actual, payload):
+            pass
+
+        await subscriber_a.subscribe("a.b", on_publish_a)
         await subscriber_b.subscribe(
             "a.b", lambda matched, actual, payload: received_b.append((matched, actual, payload))
         )
         await asyncio.sleep(0.1)
 
-        await subscriber_a.unsubscribe("a.b")
+        await subscriber_a.unsubscribe("a.b", on_publish_a)
         await asyncio.sleep(0.1)
 
         # subject still has a subscriber (subscriber_b), so it must remain tracked

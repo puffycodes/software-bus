@@ -244,15 +244,29 @@ class PubSubClient:
         """Subscribe to `subject`, calling `callback` for every matching publish.
 
         `callback` is called with (matched_subject, actual_subject, payload).
-        A subject can have multiple callbacks registered against it.
+        A subject can have multiple callbacks registered against it; the
+        upstream node is only told about the subscription once, for the
+        first callback registered against a given subject.
         """
-        self._subscribe_callbacks.setdefault(subject, []).append(callback)
-        await self._client.send(encode_message(SubscriptionMessage(subject, subscribe=True)))
+        callbacks = self._subscribe_callbacks.setdefault(subject, [])
+        is_first_subscription = not callbacks
+        callbacks.append(callback)
+        if is_first_subscription:
+            await self._client.send(encode_message(SubscriptionMessage(subject, subscribe=True)))
 
-    async def unsubscribe(self, subject: str) -> None:
-        """Unsubscribe from `subject`."""
-        self._subscribe_callbacks.pop(subject, None)
-        await self._client.send(encode_message(SubscriptionMessage(subject, subscribe=False)))
+    async def unsubscribe(self, subject: str, callback: PublishCallback) -> None:
+        """Remove `callback` from `subject`.
+
+        The upstream node is only told about the unsubscription once no
+        callback remains registered against `subject`.
+        """
+        callbacks = self._subscribe_callbacks.get(subject)
+        if callbacks is None:
+            return
+        callbacks[:] = [c for c in callbacks if c is not callback]
+        if not callbacks:
+            self._subscribe_callbacks.pop(subject, None)
+            await self._client.send(encode_message(SubscriptionMessage(subject, subscribe=False)))
 
     async def publish(self, subject: str, payload: bytes) -> None:
         await self._client.send(encode_message(PublishMessage(subject, payload)))
