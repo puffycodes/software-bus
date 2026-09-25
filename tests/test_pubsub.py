@@ -6,7 +6,7 @@ import pytest
 from software_bus import PubSubClient, PubSubNode
 from software_bus.pubsub import PublishMessage, SubscriptionMessage, decode_message, encode_message
 
-from helpers import accept_one_peer_connection
+from helpers import accept_one_peer_connection, open_peer_connection
 
 
 def test_encode_decode_subscription_roundtrip():
@@ -160,6 +160,152 @@ async def test_publish_not_delivered_for_unrelated_subject():
     finally:
         await subscriber.close()
         await node.close()
+
+
+@pytest.mark.asyncio
+async def test_publish_delivered_to_all_subscribed_clients_on_same_node():
+    node = PubSubNode()
+    subscriber_a = PubSubClient()
+    subscriber_b = PubSubClient()
+    received_a = []
+    received_b = []
+    try:
+        server = await node.accept_connection(port=0)
+        port = server.sockets[0].getsockname()[1]
+
+        await subscriber_a.connect("127.0.0.1", port)
+        await subscriber_b.connect("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+
+        await subscriber_a.subscribe("a.b", lambda matched, actual, payload: received_a.append(payload))
+        await subscriber_b.subscribe("a.b", lambda matched, actual, payload: received_b.append(payload))
+        await asyncio.sleep(0.05)
+
+        publisher = PubSubClient()
+        await publisher.connect("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+        try:
+            await publisher.publish("a.b", b"fan-out")
+            await asyncio.sleep(0.1)
+        finally:
+            await publisher.close()
+
+        assert received_a == [b"fan-out"]
+        assert received_b == [b"fan-out"]
+    finally:
+        await subscriber_a.close()
+        await subscriber_b.close()
+        await node.close()
+
+
+@pytest.mark.asyncio
+async def test_multiple_callbacks_on_same_client_and_subject_all_invoked():
+    node = PubSubNode()
+    subscriber = PubSubClient()
+    received_1 = []
+    received_2 = []
+    try:
+        server = await node.accept_connection(port=0)
+        port = server.sockets[0].getsockname()[1]
+
+        await subscriber.connect("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+
+        await subscriber.subscribe("a.b", lambda matched, actual, payload: received_1.append(payload))
+        await subscriber.subscribe("a.b", lambda matched, actual, payload: received_2.append(payload))
+        await asyncio.sleep(0.05)
+
+        publisher = PubSubClient()
+        await publisher.connect("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+        try:
+            await publisher.publish("a.b", b"double")
+            await asyncio.sleep(0.1)
+        finally:
+            await publisher.close()
+
+        assert received_1 == [b"double"]
+        assert received_2 == [b"double"]
+    finally:
+        await subscriber.close()
+        await node.close()
+
+
+@pytest.mark.asyncio
+async def test_publish_callback_supports_async_callback():
+    node = PubSubNode()
+    subscriber = PubSubClient()
+    received = []
+
+    async def async_callback(matched, actual, payload):
+        received.append(payload)
+
+    try:
+        server = await node.accept_connection(port=0)
+        port = server.sockets[0].getsockname()[1]
+
+        await subscriber.connect("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+        await subscriber.subscribe("a.b", async_callback)
+        await asyncio.sleep(0.05)
+
+        publisher = PubSubClient()
+        await publisher.connect("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+        try:
+            await publisher.publish("a.b", b"async-hi")
+            await asyncio.sleep(0.1)
+        finally:
+            await publisher.close()
+
+        assert received == [b"async-hi"]
+    finally:
+        await subscriber.close()
+        await node.close()
+
+
+@pytest.mark.asyncio
+async def test_subscribe_from_upstream_propagates_to_downstream_and_other_upstream():
+    node = PubSubNode()
+    upstream_server_1, upstream_connected_1 = await accept_one_peer_connection()
+    upstream_server_2, upstream_connected_2 = await accept_one_peer_connection()
+    downstream_peer = None
+    try:
+        await node.establish_connection(
+            "127.0.0.1", upstream_server_1.sockets[0].getsockname()[1]
+        )
+        await node.establish_connection(
+            "127.0.0.1", upstream_server_2.sockets[0].getsockname()[1]
+        )
+        upstream_peer_1 = await asyncio.wait_for(upstream_connected_1, timeout=1)
+        upstream_peer_2 = await asyncio.wait_for(upstream_connected_2, timeout=1)
+
+        server = await node.accept_connection(port=0)
+        port = server.sockets[0].getsockname()[1]
+        downstream_peer = await open_peer_connection("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+
+        await upstream_peer_1.send(encode_message(SubscriptionMessage("a.b", subscribe=True)))
+
+        forwarded_to_sibling = await asyncio.wait_for(upstream_peer_2.receive(), timeout=1)
+        assert decode_message(forwarded_to_sibling) == SubscriptionMessage("a.b", subscribe=True)
+
+        forwarded_down = await asyncio.wait_for(downstream_peer.receive(), timeout=1)
+        assert decode_message(forwarded_down) == SubscriptionMessage("a.b", subscribe=True)
+
+        assert list(node._upstream_subscriptions.keys()) == ["a.b"]
+
+        # must not be echoed back to the sender
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(upstream_peer_1.receive(), timeout=0.1)
+    finally:
+        await node.close()
+        if downstream_peer is not None:
+            await downstream_peer.close()
+        upstream_server_1.close()
+        await upstream_server_1.wait_closed()
+        upstream_server_2.close()
+        await upstream_server_2.wait_closed()
 
 
 @pytest.mark.asyncio

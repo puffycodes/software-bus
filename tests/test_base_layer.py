@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 import pytest
 
@@ -256,6 +257,145 @@ async def test_register_upstream_receive_callback_overrides_default_relay():
         await upstream_server.wait_closed()
         if downstream_peer is not None:
             await downstream_peer.close()
+
+
+@pytest.mark.asyncio
+async def test_downstream_peer_drop_removes_connection_and_invokes_error_callback():
+    hub = BaseLayerNode()
+    errors = []
+    hub.register_downstream_connection_error_callback(
+        lambda connection, error: errors.append(connection)
+    )
+    peer = None
+    try:
+        server = await hub.accept_connection(port=0)
+        hub_port = server.sockets[0].getsockname()[1]
+
+        peer = await _open_peer_connection("127.0.0.1", hub_port)
+        await asyncio.sleep(0.05)
+        assert len(hub.downstream_connections) == 1
+        connection = hub.downstream_connections[0]
+
+        await peer.close()
+        peer = None
+        await asyncio.sleep(0.1)
+
+        assert hub.downstream_connections == []
+        assert errors == [connection]
+    finally:
+        await hub.close()
+        if peer is not None:
+            await peer.close()
+
+
+@pytest.mark.asyncio
+async def test_upstream_peer_drop_removes_connection_and_invokes_error_callback():
+    hub = BaseLayerNode()
+    errors = []
+    hub.register_upstream_connection_error_callback(
+        lambda connection, error: errors.append(connection)
+    )
+    upstream_server, upstream_connected = await _accept_one_peer_connection()
+    upstream_port = upstream_server.sockets[0].getsockname()[1]
+    try:
+        connection = await hub.establish_connection("127.0.0.1", upstream_port)
+        upstream_peer = await asyncio.wait_for(upstream_connected, timeout=1)
+
+        await upstream_peer.close()
+        await asyncio.sleep(0.1)
+
+        assert hub.upstream_connections == []
+        assert errors == [connection]
+    finally:
+        await hub.close()
+        upstream_server.close()
+        await upstream_server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_upstream_connection_error_callback_supports_async_callback():
+    hub = BaseLayerNode()
+    errors = []
+
+    async def async_callback(connection, error):
+        errors.append(connection)
+
+    hub.register_upstream_connection_error_callback(async_callback)
+    upstream_server, upstream_connected = await _accept_one_peer_connection()
+    upstream_port = upstream_server.sockets[0].getsockname()[1]
+    try:
+        connection = await hub.establish_connection("127.0.0.1", upstream_port)
+        upstream_peer = await asyncio.wait_for(upstream_connected, timeout=1)
+
+        await upstream_peer.close()
+        await asyncio.sleep(0.1)
+
+        assert errors == [connection]
+    finally:
+        await hub.close()
+        upstream_server.close()
+        await upstream_server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_default_connection_error_callbacks_log_a_message(caplog):
+    hub = BaseLayerNode()
+    peer = None
+    try:
+        server = await hub.accept_connection(port=0)
+        hub_port = server.sockets[0].getsockname()[1]
+
+        peer = await _open_peer_connection("127.0.0.1", hub_port)
+        await asyncio.sleep(0.05)
+
+        with caplog.at_level(logging.INFO, logger="software_bus.base_layer"):
+            await peer.close()
+            peer = None
+            await asyncio.sleep(0.1)
+
+        assert any(
+            "downstream connection has error" in record.getMessage().lower()
+            for record in caplog.records
+        )
+    finally:
+        await hub.close()
+        if peer is not None:
+            await peer.close()
+
+
+@pytest.mark.asyncio
+async def test_relay_to_send_failure_removes_only_the_failing_connection(monkeypatch):
+    hub = BaseLayerNode()
+    errors = []
+    hub.register_downstream_connection_error_callback(
+        lambda connection, error: errors.append(connection)
+    )
+    peer_a = peer_b = None
+    try:
+        server = await hub.accept_connection(port=0)
+        hub_port = server.sockets[0].getsockname()[1]
+
+        peer_a = await _open_peer_connection("127.0.0.1", hub_port)
+        peer_b = await _open_peer_connection("127.0.0.1", hub_port)
+        await asyncio.sleep(0.05)
+
+        failing_connection, good_connection = hub.downstream_connections
+
+        async def failing_send(data):
+            raise OSError("send failed")
+
+        monkeypatch.setattr(failing_connection, "send", failing_send)
+
+        await hub._relay_to([failing_connection, good_connection], b"data")
+
+        assert errors == [failing_connection]
+        assert hub.downstream_connections == [good_connection]
+    finally:
+        await hub.close()
+        if peer_a is not None:
+            await peer_a.close()
+        if peer_b is not None:
+            await peer_b.close()
 
 
 @pytest.mark.asyncio

@@ -137,10 +137,11 @@ asyncio.run(main())
 
 A publish/subscribe layer built on top of `BaseLayerNode`/`BaseLayerClient`.
 A **subject** is a `.`-separated string (e.g. `"a.b"`). A `PubSubClient`
-subscribes to a subject to receive future publishes tagged with it, and
-publishes payloads under a subject; a `PubSubNode` tracks, per subject,
-which of its connections are interested and only forwards a publish to
-those, propagating subscribe/unsubscribe through the tree as needed.
+subscribes to a subject with a callback to receive future publishes tagged
+with it, and publishes payloads under a subject; a `PubSubNode` tracks, per
+subject, which of its connections are interested and only forwards a
+publish to those, propagating subscribe/unsubscribe through the tree as
+needed.
 
 ```python
 import asyncio
@@ -151,11 +152,10 @@ async def main():
     await node.accept_connection("127.0.0.1", 8787)
 
     subscriber = PubSubClient()
-    subscriber.register_publish_callback(
-        lambda subject, payload: print(f"{subject}: {payload!r}")
-    )
     await subscriber.connect("127.0.0.1", 8787)
-    await subscriber.subscribe("a.b")
+    await subscriber.subscribe(
+        "a.b", lambda matched, actual, payload: print(f"{matched} {actual}: {payload!r}")
+    )
 
     publisher = PubSubClient()
     await publisher.connect("127.0.0.1", 8787)
@@ -170,10 +170,16 @@ async def main():
 asyncio.run(main())
 ```
 
-Unsubscribe by passing `subscribe=False`: `await subscriber.subscribe("a.b", subscribe=False)`.
-A `PubSubClient` can also react to subscription traffic with
-`register_subscribe_callback(lambda subject, state: ...)`, called with
-`state` `True` for subscribe and `False` for unsubscribe.
+The callback is called with `(matched_subject, actual_subject, payload)`; a
+subject can have multiple callbacks registered against it, and the upstream
+node is only told about the subscription once, for the first callback
+registered on a given subject. `unsubscribe(subject, callback)` removes one
+callback, only telling the upstream node once no callback remains for that
+subject:
+
+```python
+await subscriber.unsubscribe("a.b", callback)
+```
 
 A `PubSubNode` treats a failed connection (peer dropped, or a send/receive
 on it failed) as an implicit unsubscribe from every subject that connection
@@ -258,8 +264,8 @@ python -m software_bus.ps_server --upstream 10.0.0.1:8787 --listen 127.0.0.1:878
 
 `ps_subscribe` connects to a `ps_server`, subscribes to one or more
 required, comma-separated subjects (`--subject`), and prints
-`subject: payload` for each publish it receives, with a time stamp by
-default (`--time-stamp false` to omit it):
+`matched_subject actual_subject: payload` for each publish it receives,
+with a time stamp by default (`--time-stamp false` to omit it):
 
 ```
 python -m software_bus.ps_subscribe --upstream 127.0.0.1:8787 --subject "a.b,a.c"

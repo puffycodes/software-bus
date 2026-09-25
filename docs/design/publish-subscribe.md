@@ -73,7 +73,7 @@
     - Send a publish message to the upstream node with the given subject and payload.
 - **Message Processing**
     - Upon receiving a subscription message, log the subscription message.
-        - Subscription messages are processed by the Node class and should not be send to the Client class.
+        - Note: The subscription message currently has no use to a Client Node. If some use case araises, the logicall move is to provide a callback here. This will not be implemented yet.
     - Upon receiving a publish message:
         - Look up **all** the matching subject and the corresponding list of subscription callbacks.
         - Call every callbacks using the matched subject, the actual subject and the payload as the parameters.
