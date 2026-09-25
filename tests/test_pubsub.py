@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 import pytest
 
@@ -48,14 +49,13 @@ async def test_publish_delivered_only_to_subscribed_client():
         server = await node.accept_connection(port=0)
         port = server.sockets[0].getsockname()[1]
 
-        subscriber.register_publish_callback(lambda subject, payload: received.append((subject, payload)))
-        other.register_publish_callback(lambda subject, payload: received.append(("other", subject, payload)))
-
         await subscriber.connect("127.0.0.1", port)
         await other.connect("127.0.0.1", port)
         await asyncio.sleep(0.05)
 
-        await subscriber.subscribe("a.b")
+        await subscriber.subscribe(
+            "a.b", lambda matched, actual, payload: received.append((matched, actual, payload))
+        )
         await asyncio.sleep(0.05)
 
         publisher = PubSubClient()
@@ -67,7 +67,7 @@ async def test_publish_delivered_only_to_subscribed_client():
         finally:
             await publisher.close()
 
-        assert received == [("a.b", b"hello")]
+        assert received == [("a.b", "a.b", b"hello")]
     finally:
         await subscriber.close()
         await other.close()
@@ -83,10 +83,11 @@ async def test_publish_not_delivered_for_unrelated_subject():
         server = await node.accept_connection(port=0)
         port = server.sockets[0].getsockname()[1]
 
-        subscriber.register_publish_callback(lambda subject, payload: received.append((subject, payload)))
         await subscriber.connect("127.0.0.1", port)
         await asyncio.sleep(0.05)
-        await subscriber.subscribe("a.b")
+        await subscriber.subscribe(
+            "a.b", lambda matched, actual, payload: received.append((matched, actual, payload))
+        )
         await asyncio.sleep(0.05)
 
         publisher = PubSubClient()
@@ -120,10 +121,11 @@ async def test_subscription_propagates_upstream_and_publish_flows_down_the_tree(
         await mid.establish_connection("127.0.0.1", root_port)
         await asyncio.sleep(0.05)
 
-        subscriber.register_publish_callback(lambda subject, payload: received.append((subject, payload)))
         await subscriber.connect("127.0.0.1", mid_port)
         await asyncio.sleep(0.05)
-        await subscriber.subscribe("a.b")
+        await subscriber.subscribe(
+            "a.b", lambda matched, actual, payload: received.append((matched, actual, payload))
+        )
         await asyncio.sleep(0.1)
 
         assert list(mid._downstream_subscriptions.keys()) == ["a.b"]
@@ -134,7 +136,7 @@ async def test_subscription_propagates_upstream_and_publish_flows_down_the_tree(
         await publisher.publish("a.b", b"from-root")
         await asyncio.sleep(0.1)
 
-        assert received == [("a.b", b"from-root")]
+        assert received == [("a.b", "a.b", b"from-root")]
     finally:
         await subscriber.close()
         await publisher.close()
@@ -158,13 +160,14 @@ async def test_unsubscribe_stops_further_delivery_and_propagates_upstream():
         await mid.establish_connection("127.0.0.1", root_port)
         await asyncio.sleep(0.05)
 
-        subscriber.register_publish_callback(lambda subject, payload: received.append((subject, payload)))
         await subscriber.connect("127.0.0.1", mid_port)
         await asyncio.sleep(0.05)
-        await subscriber.subscribe("a.b")
+        await subscriber.subscribe(
+            "a.b", lambda matched, actual, payload: received.append((matched, actual, payload))
+        )
         await asyncio.sleep(0.1)
 
-        await subscriber.subscribe("a.b", subscribe=False)
+        await subscriber.unsubscribe("a.b")
         await asyncio.sleep(0.1)
 
         assert "a.b" not in mid._downstream_subscriptions
@@ -193,17 +196,17 @@ async def test_unsubscribe_does_not_propagate_while_other_subscribers_remain():
         server = await node.accept_connection(port=0)
         port = server.sockets[0].getsockname()[1]
 
-        subscriber_b.register_publish_callback(lambda subject, payload: received_b.append((subject, payload)))
-
         await subscriber_a.connect("127.0.0.1", port)
         await subscriber_b.connect("127.0.0.1", port)
         await asyncio.sleep(0.05)
 
-        await subscriber_a.subscribe("a.b")
-        await subscriber_b.subscribe("a.b")
+        await subscriber_a.subscribe("a.b", lambda matched, actual, payload: None)
+        await subscriber_b.subscribe(
+            "a.b", lambda matched, actual, payload: received_b.append((matched, actual, payload))
+        )
         await asyncio.sleep(0.1)
 
-        await subscriber_a.subscribe("a.b", subscribe=False)
+        await subscriber_a.unsubscribe("a.b")
         await asyncio.sleep(0.1)
 
         # subject still has a subscriber (subscriber_b), so it must remain tracked
@@ -219,7 +222,7 @@ async def test_unsubscribe_does_not_propagate_while_other_subscribers_remain():
         finally:
             await publisher.close()
 
-        assert received_b == [("a.b", b"still-subscribed")]
+        assert received_b == [("a.b", "a.b", b"still-subscribed")]
     finally:
         await subscriber_a.close()
         await subscriber_b.close()
@@ -227,55 +230,26 @@ async def test_unsubscribe_does_not_propagate_while_other_subscribers_remain():
 
 
 @pytest.mark.asyncio
-async def test_subscribe_message_flooded_to_sibling_downstream_clients():
+async def test_subscribe_message_flooded_to_sibling_downstream_client_is_logged(caplog):
     node = PubSubNode()
     first = PubSubClient()
     second = PubSubClient()
-    subscribe_events = []
     try:
         server = await node.accept_connection(port=0)
         port = server.sockets[0].getsockname()[1]
-
-        first.register_subscribe_callback(lambda subject, state: subscribe_events.append((subject, state)))
 
         await first.connect("127.0.0.1", port)
         await second.connect("127.0.0.1", port)
         await asyncio.sleep(0.05)
 
-        await second.subscribe("a.b")
-        await asyncio.sleep(0.1)
+        with caplog.at_level(logging.INFO, logger="software_bus.pubsub"):
+            await second.subscribe("a.b", lambda matched, actual, payload: None)
+            await asyncio.sleep(0.1)
 
-        assert subscribe_events == [("a.b", True)]
-    finally:
-        await first.close()
-        await second.close()
-        await node.close()
-
-
-@pytest.mark.asyncio
-async def test_subscribe_callback_supports_async_callback():
-    node = PubSubNode()
-    first = PubSubClient()
-    second = PubSubClient()
-    subscribe_events = []
-
-    async def async_callback(subject, state):
-        subscribe_events.append((subject, state))
-
-    try:
-        server = await node.accept_connection(port=0)
-        port = server.sockets[0].getsockname()[1]
-
-        first.register_subscribe_callback(async_callback)
-
-        await first.connect("127.0.0.1", port)
-        await second.connect("127.0.0.1", port)
-        await asyncio.sleep(0.05)
-
-        await second.subscribe("a.b")
-        await asyncio.sleep(0.1)
-
-        assert subscribe_events == [("a.b", True)]
+        assert any(
+            "a.b" in record.getMessage() and "subscribe=True" in record.getMessage()
+            for record in caplog.records
+        )
     finally:
         await first.close()
         await second.close()
@@ -298,7 +272,7 @@ async def test_downstream_disconnect_removes_subscription_and_propagates_unsubsc
 
         await subscriber.connect("127.0.0.1", mid_port)
         await asyncio.sleep(0.05)
-        await subscriber.subscribe("a.b")
+        await subscriber.subscribe("a.b", lambda matched, actual, payload: None)
         await asyncio.sleep(0.1)
         assert list(root._downstream_subscriptions.keys()) == ["a.b"]
 
@@ -315,12 +289,11 @@ async def test_downstream_disconnect_removes_subscription_and_propagates_unsubsc
 
 
 @pytest.mark.asyncio
-async def test_upstream_disconnect_removes_subscription_and_propagates_unsubscribe():
+async def test_upstream_disconnect_removes_subscription_and_propagates_unsubscribe(caplog):
     root = PubSubNode()
     mid = PubSubNode()
     root_subscriber = PubSubClient()
     mid_client = PubSubClient()
-    subscriptions = []
     try:
         root_server = await root.accept_connection(port=0)
         root_port = root_server.sockets[0].getsockname()[1]
@@ -330,22 +303,23 @@ async def test_upstream_disconnect_removes_subscription_and_propagates_unsubscri
         await mid.establish_connection("127.0.0.1", root_port)
         await asyncio.sleep(0.05)
 
-        mid_client.register_subscribe_callback(
-            lambda subject, subscribe: subscriptions.append((subject, subscribe))
-        )
         await mid_client.connect("127.0.0.1", mid_port)
         await root_subscriber.connect("127.0.0.1", root_port)
         await asyncio.sleep(0.05)
-        await root_subscriber.subscribe("a.b")
-        await asyncio.sleep(0.1)
-        assert list(mid._upstream_subscriptions.keys()) == ["a.b"]
 
-        await root.close()
-        await asyncio.sleep(0.1)
+        with caplog.at_level(logging.INFO, logger="software_bus.pubsub"):
+            await root_subscriber.subscribe("a.b", lambda matched, actual, payload: None)
+            await asyncio.sleep(0.1)
+            assert list(mid._upstream_subscriptions.keys()) == ["a.b"]
+
+            await root.close()
+            await asyncio.sleep(0.1)
 
         assert mid.upstream_connections == []
         assert mid._upstream_subscriptions == {}
-        assert subscriptions == [("a.b", True), ("a.b", False)]
+        messages = [record.getMessage() for record in caplog.records]
+        assert any("a.b" in m and "subscribe=True" in m for m in messages)
+        assert any("a.b" in m and "subscribe=False" in m for m in messages)
     finally:
         await root_subscriber.close()
         await mid_client.close()

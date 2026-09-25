@@ -41,8 +41,8 @@ class PublishMessage:
 
 Message = Union[SubscriptionMessage, PublishMessage]
 
-SubscribeCallback = Callable[[str, bool], Any]
-PublishCallback = Callable[[str, bytes], Any]
+PublishCallback = Callable[[str, str, bytes], Any]
+"""Called with (matched_subject, actual_subject, payload)."""
 
 
 def encode_message(message: Message) -> bytes:
@@ -232,8 +232,7 @@ class PubSubClient:
     def __init__(self) -> None:
         self._client = BaseLayerClient()
         self._client.register_receive_callback(self._on_receive)
-        self._subscribe_callback: Optional[SubscribeCallback] = None
-        self._publish_callback: Optional[PublishCallback] = None
+        self._subscribe_callbacks: Dict[str, List[PublishCallback]] = {}
 
     async def connect(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> Connection:
         return await self._client.connect(host, port)
@@ -241,23 +240,19 @@ class PubSubClient:
     async def close(self) -> None:
         await self._client.close()
 
-    def register_subscribe_callback(self, callback: Optional[SubscribeCallback]) -> None:
-        """Set the function to call when a subscription message is received.
+    async def subscribe(self, subject: str, callback: PublishCallback) -> None:
+        """Subscribe to `subject`, calling `callback` for every matching publish.
 
-        Pass None to stop calling any function.
+        `callback` is called with (matched_subject, actual_subject, payload).
+        A subject can have multiple callbacks registered against it.
         """
-        self._subscribe_callback = callback
+        self._subscribe_callbacks.setdefault(subject, []).append(callback)
+        await self._client.send(encode_message(SubscriptionMessage(subject, subscribe=True)))
 
-    def register_publish_callback(self, callback: Optional[PublishCallback]) -> None:
-        """Set the function to call when a publish message is received.
-
-        Pass None to stop calling any function.
-        """
-        self._publish_callback = callback
-
-    async def subscribe(self, subject: str, subscribe: bool = True) -> None:
-        """Subscribe to, or with `subscribe=False`, unsubscribe from a subject."""
-        await self._client.send(encode_message(SubscriptionMessage(subject, subscribe)))
+    async def unsubscribe(self, subject: str) -> None:
+        """Unsubscribe from `subject`."""
+        self._subscribe_callbacks.pop(subject, None)
+        await self._client.send(encode_message(SubscriptionMessage(subject, subscribe=False)))
 
     async def publish(self, subject: str, payload: bytes) -> None:
         await self._client.send(encode_message(PublishMessage(subject, payload)))
@@ -265,11 +260,14 @@ class PubSubClient:
     async def _on_receive(self, data: bytes) -> None:
         message = decode_message(data)
         if isinstance(message, SubscriptionMessage):
-            if self._subscribe_callback is not None:
-                await _maybe_await(self._subscribe_callback(message.subject, message.subscribe))
+            logger.info(
+                "Received subscription message: subject=%r subscribe=%s",
+                message.subject,
+                message.subscribe,
+            )
         elif isinstance(message, PublishMessage):
-            if self._publish_callback is not None:
-                await _maybe_await(self._publish_callback(message.subject, message.payload))
+            for callback in self._subscribe_callbacks.get(message.subject, []):
+                await _maybe_await(callback(message.subject, message.subject, message.payload))
 
     async def __aenter__(self) -> "PubSubClient":
         return self

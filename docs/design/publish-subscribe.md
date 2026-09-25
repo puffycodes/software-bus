@@ -49,16 +49,32 @@
     - Register the necessary receive callback to achieve its job
 
 - **Instantiation** Create an instance of the class
-- **Subscribe** Send a subscription message to the upstream node to subscribe or unsubscribe from a given subject.
-- **Publish** Send a publish message to the upstream node with the given subject and payload.
-- **Register a Subscribe Callback** Provide a function to call when a subscription message is received.
-    - The default subscribe callback will be None, which means not to call any function.
-- **Register a Publish Callback** Provide a function to call when a publish message is received.
-    - The default publish callback will be None, which means not to call any function.
+- **Subscribe**
+    - Parameters:
+        - subject to subscribe to
+        - a function that is the subscription callback
+            - the function take the following parameters:
+                - the subject matched to
+                - the actual subject in the publish message received
+                - the payload in the publish message
+    - Send a subscription message to the upstream node to subscribe or unsubscribe from a given subject.
+    - Register the subscription callback under the given subject.
+        - A subject can have multiple subscription callbacks.
+- **Unsubscribe**
+    - Parameters:
+        - subject to unsubscribe from
+    - Send an unsubscription message to the upstream node to unsubscribe from the given subject.
+- **Publish**
+    - Parameters:
+        - subject to publish to
+        - payload of the publish message
+    - Send a publish message to the upstream node with the given subject and payload.
 - **Message Processing**
-    - Upon receiving a subscription message, call the subscribe callback with the subject and a subscribe state as parameters.
-        - The subscribe state will be true if the content of the message is subscribe, and false if the content of the message is unsubscribe.
-    - Upon receiving a publish message, call the publish callback with the subject and the payload as the parameters.
+    - Upon receiving a subscription message, log the subscription message.
+        - Subscription messages are processed by the Node class and should not be send to the Client class.
+    - Upon receiving a publish message:
+        - Look up **all** the matching subject and the corresponding list of subscription callbacks.
+        - Call every callbacks using the matched subject, the actual subject and the payload as the parameters.
 
 ## ps_server Script
 
@@ -77,7 +93,7 @@
     - parameter --upstream ip:port (default: as per default in Base Layer Node Class)
 - Subscribe to one or more subjects
     - parameter --subject "<subject_1>,<subject_2>,..." (required)
-    - print the subject and the payload received with the publish message with an optional time stamp
+    - print the matched subject, the actual subject and the payload received with the publish message with an optional time stamp
         - parameter --time-stamp true|false (default: true)
 - Print logging information
     - parameter --debug true|false (default: false)

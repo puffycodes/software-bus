@@ -46,16 +46,17 @@ async def run(
     subjects: List[str],
     time_stamp: bool = True,
 ) -> None:
-    client = PubSubClient()
-    client.register_publish_callback(
-        lambda subject, payload: print_received(
-            f"{subject}: {payload.decode(errors='replace')}", time_stamp
+    def on_publish(matched_subject: str, actual_subject: str, payload: bytes) -> None:
+        print_received(
+            f"{matched_subject} {actual_subject}: {payload.decode(errors='replace')}",
+            time_stamp,
         )
-    )
+
+    client = PubSubClient()
     try:
         await client.connect(host, port)
         for subject in subjects:
-            await client.subscribe(subject)
+            await client.subscribe(subject, on_publish)
         await asyncio.Event().wait()
     finally:
         await client.close()

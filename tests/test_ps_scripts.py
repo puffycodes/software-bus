@@ -153,7 +153,7 @@ async def test_ps_subscribe_run_without_time_stamp_omits_timestamp(capsys):
         await asyncio.sleep(0.1)
 
         captured = capsys.readouterr()
-        assert captured.out.strip() == "a.b: hello"
+        assert captured.out.strip() == "a.b a.b: hello"
     finally:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -187,13 +187,12 @@ async def test_ps_publish_run_publishes_message_repeat_count_times():
 
     subscriber = PubSubClient()
     received = []
-    subscriber.register_publish_callback(
-        lambda subject, payload: received.append((subject, payload))
-    )
     try:
         await subscriber.connect("127.0.0.1", hub_port)
         await asyncio.sleep(0.05)
-        await subscriber.subscribe("a.b")
+        await subscriber.subscribe(
+            "a.b", lambda matched, actual, payload: received.append((matched, actual, payload))
+        )
         await asyncio.sleep(0.05)
 
         await ps_publish.run(
@@ -201,7 +200,7 @@ async def test_ps_publish_run_publishes_message_repeat_count_times():
         )
         await asyncio.sleep(0.1)
 
-        assert received == [("a.b", b"hi")] * 3
+        assert received == [("a.b", "a.b", b"hi")] * 3
     finally:
         await subscriber.close()
         await hub.close()
