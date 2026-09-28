@@ -2,8 +2,9 @@
 
 ## Definitions
 
-- **Subject** A string with "." separators.
+- **Subject** A string with "." separators. A subject used in a Subscription message may be a literal subject or a pattern containing "*" wildcard sub-strings, as defined in `subject-matcher.md`. A subject used in a Publish message is always literal (no wildcards).
 - **Content** Payload of a message associates with the subject.
+- **Subject Matcher** The String Pattern Matcher from `subject-matcher.md`, used throughout this document to test whether a published subject matches a subscribed subject: the subscribed subject (which may contain wildcards) is the *target subject*, and the published subject is the *given subject*.
 
 ## Messages
 
@@ -37,9 +38,10 @@
             - Remove the connection from the upstream connection list tagged to the subject.
         - In both scenarios, if the resulted downstream connection list **and** the upstream connection list tagged to the subject is empty, send a unsubscribe message to all the downstream and upstream connections.
     - Upon receiving of a publish message.
-        - Send a publish message to all the connections in the following lists that are tagged to the subject.
+        - Connection lists are tagged by the subscribed subject, which may be a pattern, while the publish message carries a literal subject — so a tag is not looked up by exact match. For each of the following lists, use the Subject Matcher to test the published subject against every tagged subject, and collect the connections under every tagged subject that matches.
             - The downstream connection list.
             - The upstream connection list.
+        - Send a publish message to each collected connection exactly once, even if it is tagged under more than one matching subject (e.g. a connection subscribed to both "a.b" and "a.*" must still only receive one copy of a publish to "a.b").
 - **Exception Handling**
     - When error occurs on a connection, remove the connection from every subject and propagate unsubscribes.
 
@@ -75,8 +77,8 @@
     - Upon receiving a subscription message, log the subscription message.
         - Note: The subscription message currently has no use to a Client Node. If some use case araises, the logicall move is to provide a callback here. This will not be implemented yet.
     - Upon receiving a publish message:
-        - Look up **all** the matching subject and the corresponding list of subscription callbacks.
-        - Call every callbacks using the matched subject, the actual subject and the payload as the parameters.
+        - Using the Subject Matcher, look up **all** the subscribed subjects that match the published subject, and their corresponding list of subscription callbacks.
+        - Call every callbacks using the matched (subscribed) subject, the actual (published) subject and the payload as the parameters.
 
 ## ps_server Script
 

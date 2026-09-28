@@ -12,8 +12,11 @@ all downstream connections and to every other upstream connection.
 See [`docs/design/base-layer.md`](docs/design/base-layer.md) for the full
 design and routing rules, and
 [`docs/design/publish-subscribe.md`](docs/design/publish-subscribe.md) for
-the publish/subscribe layer built on top of it. The wire formats for both
-layers are specified in [`docs/design/data-format.md`](docs/design/data-format.md).
+the publish/subscribe layer built on top of it, including how it matches a
+published subject against a subscribed one (see
+[`docs/design/subject-matcher.md`](docs/design/subject-matcher.md)). The
+wire formats for both layers are specified in
+[`docs/design/data-format.md`](docs/design/data-format.md).
 
 ## Install
 
@@ -139,9 +142,18 @@ A publish/subscribe layer built on top of `BaseLayerNode`/`BaseLayerClient`.
 A **subject** is a `.`-separated string (e.g. `"a.b"`). A `PubSubClient`
 subscribes to a subject with a callback to receive future publishes tagged
 with it, and publishes payloads under a subject; a `PubSubNode` tracks, per
-subject, which of its connections are interested and only forwards a
-publish to those, propagating subscribe/unsubscribe through the tree as
-needed.
+subscribed subject, which of its connections are interested and only
+forwards a publish to those, propagating subscribe/unsubscribe through the
+tree as needed.
+
+A subject subscribed to (whether by a `PubSubClient` or received as a
+subscription message by a `PubSubNode`) may be a literal subject or a
+wildcard pattern, e.g. `"a.*"` matches any published subject with two
+`.`-separated parts whose first part is `a`. A published subject itself is
+always literal. Matching is done by `StringPatternMatcher`
+(`software_bus.subject_matcher`) — see
+[`docs/design/subject-matcher.md`](docs/design/subject-matcher.md) for the
+full matching rules.
 
 ```python
 import asyncio
@@ -170,7 +182,9 @@ async def main():
 asyncio.run(main())
 ```
 
-The callback is called with `(matched_subject, actual_subject, payload)`; a
+The callback is called with `(matched_subject, actual_subject, payload)` —
+`matched_subject` is the subject you subscribed with (literal or pattern),
+`actual_subject` is the literal subject the publisher used; a
 subject can have multiple callbacks registered against it, and the upstream
 node is only told about the subscription once, for the first callback
 registered on a given subject. `unsubscribe(subject, callback)` removes one
@@ -263,7 +277,8 @@ python -m software_bus.ps_server --upstream 10.0.0.1:8787 --listen 127.0.0.1:878
 ```
 
 `ps_subscribe` connects to a `ps_server`, subscribes to one or more
-required, comma-separated subjects (`--subject`), and prints
+required, comma-separated subjects (`--subject`; a subject may be a
+wildcard pattern like `"a.*"`), and prints
 `matched_subject actual_subject: payload` for each publish it receives,
 with a time stamp by default (`--time-stamp false` to omit it):
 
@@ -292,6 +307,7 @@ src/software_bus/
     base_layer.py   BaseLayerNode, Connection
     client.py       BaseLayerClient
     pubsub.py       PubSubNode, PubSubClient
+    subject_matcher.py  SubjectMatcher, ExactStringMatcher, StringPatternMatcher
     bl_server.py    bl_server CLI
     bl_client.py    bl_client CLI
     ps_server.py    ps_server CLI

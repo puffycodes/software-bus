@@ -132,6 +132,72 @@ async def test_publish_delivered_only_to_subscribed_client():
 
 
 @pytest.mark.asyncio
+async def test_publish_delivered_to_wildcard_subscription():
+    node = PubSubNode()
+    subscriber = PubSubClient()
+    received = []
+    try:
+        server = await node.accept_connection(port=0)
+        port = server.sockets[0].getsockname()[1]
+
+        await subscriber.connect("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+        await subscriber.subscribe(
+            "a.*", lambda matched, actual, payload: received.append((matched, actual, payload))
+        )
+        await asyncio.sleep(0.05)
+
+        publisher = PubSubClient()
+        await publisher.connect("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+        try:
+            await publisher.publish("a.b", b"hello")
+            await asyncio.sleep(0.1)
+        finally:
+            await publisher.close()
+
+        assert received == [("a.*", "a.b", b"hello")]
+    finally:
+        await subscriber.close()
+        await node.close()
+
+
+@pytest.mark.asyncio
+async def test_publish_delivered_once_per_connection_despite_overlapping_subscriptions():
+    """A connection subscribed under two tags that both match a publish
+    (e.g. "a.b" and "a.*") must still get a single wire copy of it, not one
+    per matching tag."""
+    node = PubSubNode()
+    subscriber = PubSubClient()
+    received_exact = []
+    received_wild = []
+    try:
+        server = await node.accept_connection(port=0)
+        port = server.sockets[0].getsockname()[1]
+
+        await subscriber.connect("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+        await subscriber.subscribe("a.b", lambda matched, actual, payload: received_exact.append(payload))
+        await subscriber.subscribe("a.*", lambda matched, actual, payload: received_wild.append(payload))
+        await asyncio.sleep(0.05)
+
+        publisher = PubSubClient()
+        await publisher.connect("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+        try:
+            await publisher.publish("a.b", b"hello")
+            await asyncio.sleep(0.1)
+        finally:
+            await publisher.close()
+
+        assert received_exact == [b"hello"]
+        assert received_wild == [b"hello"]
+    finally:
+        await subscriber.close()
+        await node.close()
+
+
+@pytest.mark.asyncio
 async def test_publish_not_delivered_for_unrelated_subject():
     node = PubSubNode()
     subscriber = PubSubClient()
@@ -345,6 +411,131 @@ async def test_subscription_propagates_upstream_and_publish_flows_down_the_tree(
         await publisher.close()
         await mid.close()
         await root.close()
+
+
+@pytest.mark.asyncio
+async def test_wildcard_subscription_propagates_upstream_and_publish_flows_down_the_tree():
+    root = PubSubNode()
+    mid = PubSubNode()
+    subscriber = PubSubClient()
+    publisher = PubSubClient()
+    received = []
+    try:
+        root_server = await root.accept_connection(port=0)
+        root_port = root_server.sockets[0].getsockname()[1]
+
+        mid_server = await mid.accept_connection(port=0)
+        mid_port = mid_server.sockets[0].getsockname()[1]
+        await mid.establish_connection("127.0.0.1", root_port)
+        await asyncio.sleep(0.05)
+
+        await subscriber.connect("127.0.0.1", mid_port)
+        await asyncio.sleep(0.05)
+        await subscriber.subscribe(
+            "a.*", lambda matched, actual, payload: received.append((matched, actual, payload))
+        )
+        await asyncio.sleep(0.1)
+
+        # the tree tags connections by the subscribed pattern itself, not by
+        # the literal subjects it will later match at publish time.
+        assert list(mid._downstream_subscriptions.keys()) == ["a.*"]
+        assert list(root._downstream_subscriptions.keys()) == ["a.*"]
+
+        await publisher.connect("127.0.0.1", root_port)
+        await asyncio.sleep(0.05)
+        await publisher.publish("a.b", b"from-root")
+        await asyncio.sleep(0.1)
+
+        assert received == [("a.*", "a.b", b"from-root")]
+    finally:
+        await subscriber.close()
+        await publisher.close()
+        await mid.close()
+        await root.close()
+
+
+@pytest.mark.asyncio
+async def test_publish_delivered_to_distinct_connections_with_overlapping_patterns():
+    """Dedup is per-connection: two different subscribers whose subjects
+    both match a publish (one exact, one wildcard) must each still receive
+    it."""
+    node = PubSubNode()
+    exact_subscriber = PubSubClient()
+    wild_subscriber = PubSubClient()
+    received_exact = []
+    received_wild = []
+    try:
+        server = await node.accept_connection(port=0)
+        port = server.sockets[0].getsockname()[1]
+
+        await exact_subscriber.connect("127.0.0.1", port)
+        await wild_subscriber.connect("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+
+        await exact_subscriber.subscribe(
+            "a.b", lambda matched, actual, payload: received_exact.append(payload)
+        )
+        await wild_subscriber.subscribe(
+            "a.*", lambda matched, actual, payload: received_wild.append(payload)
+        )
+        await asyncio.sleep(0.05)
+
+        publisher = PubSubClient()
+        await publisher.connect("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+        try:
+            await publisher.publish("a.b", b"fan-out")
+            await asyncio.sleep(0.1)
+        finally:
+            await publisher.close()
+
+        assert received_exact == [b"fan-out"]
+        assert received_wild == [b"fan-out"]
+    finally:
+        await exact_subscriber.close()
+        await wild_subscriber.close()
+        await node.close()
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_from_one_overlapping_subject_keeps_delivery_via_the_other():
+    node = PubSubNode()
+    subscriber = PubSubClient()
+    received_wild = []
+    try:
+        server = await node.accept_connection(port=0)
+        port = server.sockets[0].getsockname()[1]
+
+        await subscriber.connect("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+
+        def on_exact(matched, actual, payload):
+            pass
+
+        await subscriber.subscribe("a.b", on_exact)
+        await subscriber.subscribe(
+            "a.*", lambda matched, actual, payload: received_wild.append(payload)
+        )
+        await asyncio.sleep(0.05)
+
+        await subscriber.unsubscribe("a.b", on_exact)
+        await asyncio.sleep(0.05)
+        assert "a.b" not in node._downstream_subscriptions
+        assert "a.*" in node._downstream_subscriptions
+
+        publisher = PubSubClient()
+        await publisher.connect("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+        try:
+            await publisher.publish("a.b", b"still-here")
+            await asyncio.sleep(0.1)
+        finally:
+            await publisher.close()
+
+        assert received_wild == [b"still-here"]
+    finally:
+        await subscriber.close()
+        await node.close()
 
 
 @pytest.mark.asyncio

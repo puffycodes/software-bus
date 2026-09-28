@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from .base_layer import DEFAULT_HOST, DEFAULT_PORT, BaseLayerNode, Connection, _maybe_await
 from .client import BaseLayerClient
+from .subject_matcher import StringPatternMatcher
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,27 @@ def _discard_subscriber(
     return False
 
 
+def _matching_connections(
+    subscriptions: Dict[str, List[Connection]], subject: str, matcher: StringPatternMatcher
+) -> List[Connection]:
+    """Every connection tagged to a subscribed subject that `subject` matches.
+
+    A connection subscribed under more than one tag that matches `subject`
+    (e.g. both "a.b" and "a.*") is still only returned once, so it receives
+    a single wire copy of the publish rather than one per matching tag.
+    """
+    connections: List[Connection] = []
+    seen_ids = set()
+    for tagged_subject, tagged_connections in subscriptions.items():
+        if not matcher.match(subject, tagged_subject):
+            continue
+        for connection in tagged_connections:
+            if id(connection) not in seen_ids:
+                seen_ids.add(id(connection))
+                connections.append(connection)
+    return connections
+
+
 class PubSubNode:
     """A base layer node that routes subscribe/unsubscribe/publish messages.
 
@@ -118,6 +140,7 @@ class PubSubNode:
         )
         self._downstream_subscriptions: Dict[str, List[Connection]] = {}
         self._upstream_subscriptions: Dict[str, List[Connection]] = {}
+        self._matcher = StringPatternMatcher()
 
     @property
     def upstream_connections(self) -> List[Connection]:
@@ -210,8 +233,8 @@ class PubSubNode:
 
     async def _handle_publish(self, message: PublishMessage) -> None:
         targets = [
-            *self._downstream_subscriptions.get(message.subject, []),
-            *self._upstream_subscriptions.get(message.subject, []),
+            *_matching_connections(self._downstream_subscriptions, message.subject, self._matcher),
+            *_matching_connections(self._upstream_subscriptions, message.subject, self._matcher),
         ]
         await self._send_to(targets, message)
 
@@ -233,6 +256,7 @@ class PubSubClient:
         self._client = BaseLayerClient()
         self._client.register_receive_callback(self._on_receive)
         self._subscribe_callbacks: Dict[str, List[PublishCallback]] = {}
+        self._matcher = StringPatternMatcher()
 
     async def connect(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> Connection:
         return await self._client.connect(host, port)
@@ -280,8 +304,12 @@ class PubSubClient:
                 message.subscribe,
             )
         elif isinstance(message, PublishMessage):
-            for callback in self._subscribe_callbacks.get(message.subject, []):
-                await _maybe_await(callback(message.subject, message.subject, message.payload))
+            for subscribed_subject, callbacks in self._subscribe_callbacks.items():
+                if self._matcher.match(message.subject, subscribed_subject):
+                    for callback in callbacks:
+                        await _maybe_await(
+                            callback(subscribed_subject, message.subject, message.payload)
+                        )
 
     async def __aenter__(self) -> "PubSubClient":
         return self
