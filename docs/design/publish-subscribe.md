@@ -72,6 +72,7 @@
 - **Exception Handling**
     - When error occurs on a connection, remove the connection from every subject, applying the unsubscribe rules above for each subject as if the connection had sent an unsubscribe message.
     - When error occurs on a pending connection, the cycle check for it ends, and Establish Connection reports the error to its caller.
+- **Close** Close the Base Layer Node (which stops accepting connections and closes every connection), stop answering any reachability queries still in progress, and forget every subscription.
 
 ## Cycle Prevention
 
@@ -142,6 +143,7 @@ A node that is checking therefore answers every query it receives with unknown:
 
 - **Instantiation** Create an instance of the class
 - **Register Connection Error Callback** Provide a function to call when there is error with the connection to the upstream node. This is passed straight to the Base Layer Client, with the same default.
+- **Close** Close the connection to the upstream node, as the Base Layer Client does.
 - **Subscribe**
     - Parameters:
         - subject to subscribe to

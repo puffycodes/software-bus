@@ -47,6 +47,9 @@ Functionalities
             - Call the downstream connection error callback with the connection details and error.
             - Close the downstream connection.
 
+- **Close** Stop accepting connections on every IP/port, and close every upstream and downstream connection.
+    - Close the connections before waiting for the listening sockets to finish closing: waiting may otherwise never end while accepted connections are still open.
+    - Afterwards the lists of IP/port and of connections are empty.
 - **Internal Data** Keep the following lists:
     - a list of IP/port that it is accepting connections on.
     - a list of upstream connections.
@@ -77,6 +80,7 @@ Functionalities
         - Close the connection.
         - If it was a failure to send, also report the failure to the caller of Send.
     - Closing the client itself is not an error, and does not call the connection error callback.
+- **Close** Close the connection, if any. The client is then no longer connected.
 
 ## bl_server Script
 

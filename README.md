@@ -16,7 +16,9 @@ the publish/subscribe layer built on top of it, including how it matches a
 published subject against a subscribed one (see
 [`docs/design/subject-matcher.md`](docs/design/subject-matcher.md)). The
 wire formats for both layers are specified in
-[`docs/design/data-format.md`](docs/design/data-format.md).
+[`docs/design/data-format.md`](docs/design/data-format.md), and the
+`bus_check` cycle-finding tool in
+[`docs/design/bus-check.md`](docs/design/bus-check.md).
 
 ## Install
 
@@ -92,8 +94,10 @@ hub.register_downstream_receive_callback(
 When a connection drops, or a send/receive on it fails, it's removed from
 `upstream_connections`/`downstream_connections` and an upstream or
 downstream connection error callback is called with the `Connection` and
-the exception (`None` on a clean shutdown); once the callback returns, the
-connection is closed, so don't keep it around to send on. The default callbacks just log
+the exception — e.g. `asyncio.IncompleteReadError` when the peer closed the
+connection, or `asyncio.CancelledError` when this node is being closed. Once
+the callback returns, the connection is closed, so don't keep it around to
+send on. The default callbacks just log
 the event; override them with `register_upstream_connection_error_callback`
 / `register_downstream_connection_error_callback` to react instead:
 
@@ -225,10 +229,15 @@ subject can have multiple callbacks registered against it, and the upstream
 node is only told about the subscription once, for the first callback
 registered on a given subject. `unsubscribe(subject, callback)` removes one
 callback, only telling the upstream node once no callback remains for that
-subject:
+subject — so keep a reference to the function you subscribed with:
 
 ```python
-await subscriber.unsubscribe("a.b", callback)
+def on_publish(matched, actual, payload):
+    print(f"{matched} {actual}: {payload!r}")
+
+await subscriber.subscribe("a.b", on_publish)
+# ... later ...
+await subscriber.unsubscribe("a.b", on_publish)
 ```
 
 A client that is subscribed to a subject it publishes to receives its own
@@ -246,7 +255,7 @@ Nodes must be connected as a tree, and they enforce it themselves: before
 already connected to — whether the node it just connected to can already be
 reached another way. If so, the new connection would close a cycle, so it's
 closed again and `establish_connection` raises `CycleCheckRefused` (a
-`ConnectionError`) saying why. A connection to the node itself, a second
+`ConnectionError`, importable from `software_bus.pubsub`) saying why. A connection to the node itself, a second
 connection to the same node, or to a peer that isn't a `PubSubNode` is
 refused the same way. Every node in a tree has to be a version that does
 this check. See "Cycle Prevention" in
@@ -271,10 +280,17 @@ Each pub/sub message is sent as the base layer's `data` payload (see the
 base layer wire format above — no additional outer framing is needed
 here). The first byte is a message type tag:
 
-| Message      | Byte layout                                                                 |
-|--------------|------------------------------------------------------------------------------|
-| Subscription | `0x01` \| `state` (1 byte: `0x01` subscribe / `0x00` unsubscribe) \| `subject_length` (2 bytes, big-endian) \| `subject` (UTF-8) |
-| Publish      | `0x02` \| `subject_length` (2 bytes, big-endian) \| `subject` (UTF-8) \| `payload` (remaining bytes, arbitrary binary) |
+| Message            | Byte layout                                                                 |
+|--------------------|------------------------------------------------------------------------------|
+| Subscription       | `0x01` \| `state` (1 byte: `0x01` subscribe / `0x00` unsubscribe) \| `subject_length` (2 bytes, big-endian) \| `subject` (UTF-8) |
+| Publish            | `0x02` \| `subject_length` (2 bytes, big-endian) \| `subject` (UTF-8) \| `payload` (remaining bytes, arbitrary binary) |
+| Hello              | `0x03` \| `node_id` (16 bytes) |
+| Reachability Query | `0x04` \| `query_id` (16 bytes) \| `target_node_id` (16 bytes) |
+| Reachability Reply | `0x05` \| `query_id` (16 bytes) \| `result` (1 byte: `0x00` not found / `0x01` found / `0x02` unknown) |
+
+The last three are only used for cycle prevention: every node sends Hello
+on each new connection (clients ignore it), and the reachability messages
+only go between nodes.
 
 `subject_length` caps subjects at 65535 UTF-8 bytes. A publish payload has
 no length field of its own — it's simply everything left in the message
@@ -331,7 +347,7 @@ status 1. Likewise if the connection is lost later — even partway through a
 `--repeat-count` run — it prints `error: connection to server lost (...)`
 and exits with status 1.
 
-All five command-line tools accept `--debug true` to print `INFO`-level
+All the command-line tools accept `--debug true` to print `INFO`-level
 logging (connection/disconnection events etc.) to stderr; it's off by
 default:
 
