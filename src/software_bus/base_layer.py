@@ -57,6 +57,7 @@ class Connection:
 
 ReceiveCallback = Callable[["Connection", bytes], Any]
 ConnectionErrorCallback = Callable[["Connection", Optional[BaseException]], Any]
+NewConnectionCallback = Callable[["Connection"], Any]
 
 
 async def _maybe_await(result: Any) -> None:
@@ -91,6 +92,8 @@ class BaseLayerNode:
         self._downstream_connection_error_callback: ConnectionErrorCallback = (
             self._default_downstream_connection_error_callback
         )
+        self._upstream_new_connection_callback: Optional[NewConnectionCallback] = None
+        self._downstream_new_connection_callback: Optional[NewConnectionCallback] = None
 
     def is_accepting(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> bool:
         return (host, port) in self._servers
@@ -114,6 +117,24 @@ class BaseLayerNode:
     ) -> None:
         """Set the function to call when there is an error with a downstream connection."""
         self._downstream_connection_error_callback = callback
+
+    def register_upstream_new_connection_callback(
+        self, callback: Optional[NewConnectionCallback]
+    ) -> None:
+        """Set the function to call with each newly established upstream connection.
+
+        Pass None to stop calling any function.
+        """
+        self._upstream_new_connection_callback = callback
+
+    def register_downstream_new_connection_callback(
+        self, callback: Optional[NewConnectionCallback]
+    ) -> None:
+        """Set the function to call with each newly accepted downstream connection.
+
+        Pass None to stop calling any function.
+        """
+        self._downstream_new_connection_callback = callback
 
     async def accept_connection(
         self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT
@@ -143,6 +164,8 @@ class BaseLayerNode:
     ) -> None:
         connection = self._start_connection(reader, writer, from_upstream=False)
         logger.info("Accepted downstream connection from %s", connection.address)
+        if self._downstream_new_connection_callback is not None:
+            await _maybe_await(self._downstream_new_connection_callback(connection))
 
     async def establish_connection(self, host: str, port: int) -> Connection:
         """Open a TCP connection to an upstream instance.
@@ -152,6 +175,8 @@ class BaseLayerNode:
         reader, writer = await asyncio.open_connection(host, port)
         connection = self._start_connection(reader, writer, from_upstream=True)
         logger.info("Established upstream connection to %s:%s", host, port)
+        if self._upstream_new_connection_callback is not None:
+            await _maybe_await(self._upstream_new_connection_callback(connection))
         return connection
 
     def _start_connection(

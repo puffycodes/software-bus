@@ -88,6 +88,11 @@ hub.register_downstream_connection_error_callback(
 )
 ```
 
+To react when a connection opens, register a function with
+`register_upstream_new_connection_callback` /
+`register_downstream_new_connection_callback`; it's called with the new
+`Connection`. None is registered by default.
+
 #### Wire format
 
 See [`docs/design/data-format.md`](docs/design/data-format.md) for the
@@ -196,11 +201,22 @@ subject:
 await subscriber.unsubscribe("a.b", callback)
 ```
 
+A client that is subscribed to a subject it publishes to receives its own
+publish: `publish()` calls the client's matching callbacks directly, since a
+node never sends a publish back to the connection it came from.
+
+When a subscriber unsubscribes, each node tells a neighbour to stop sending
+a subject as soon as no *other* connection on that node still wants it, so
+subscriptions between nodes are torn down once the last subscriber anywhere
+leaves. A node that joins the tree later (or any new connection) is sent the
+subjects that already have subscribers. Nodes must be connected as a tree —
+cycles are not supported.
+
 A `PubSubNode` treats a failed connection (peer dropped, or a send/receive
 on it failed) as an implicit unsubscribe from every subject that connection
-was subscribed to: it's removed from each subject, and for any subject left
-with no subscribers on either side, an unsubscribe is propagated to the
-remaining connections — exactly as if the peer had unsubscribed itself.
+was subscribed to — exactly as if the peer had unsubscribed itself.
+A malformed message (see [`docs/design/data-format.md`](docs/design/data-format.md))
+is logged and ignored by both nodes and clients; the connection is kept.
 
 #### Wire format
 

@@ -723,3 +723,219 @@ async def test_upstream_disconnect_removes_subscription_and_propagates_unsubscri
         await mid_client.close()
         await mid.close()
         await root.close()
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"",  # empty
+        b"\x01",  # subscription without a state
+        b"\x01\x02\x00\x01a",  # state neither 0x00 nor 0x01
+        b"\x01\x01\x00",  # truncated subject length
+        b"\x01\x01\x00\x05ab",  # shorter than its subject length
+        b"\x02\x00\x05ab",  # publish shorter than its subject length
+        b"\x02\x00\x01\xff",  # subject not valid utf-8
+    ],
+)
+def test_decode_malformed_message_raises(data):
+    with pytest.raises(ValueError):
+        decode_message(data)
+
+
+async def _start_node():
+    node = PubSubNode()
+    server = await node.accept_connection(port=0)
+    return node, server.sockets[0].getsockname()[1]
+
+
+@pytest.mark.asyncio
+async def test_publish_not_bounced_between_nodes_that_both_have_subscribers():
+    root, root_port = await _start_node()
+    mid, mid_port = await _start_node()
+    root_subscriber = PubSubClient()
+    mid_subscriber = PubSubClient()
+    publisher = PubSubClient()
+    received = []
+    try:
+        await mid.establish_connection("127.0.0.1", root_port)
+        await root_subscriber.connect("127.0.0.1", root_port)
+        await mid_subscriber.connect("127.0.0.1", mid_port)
+        await publisher.connect("127.0.0.1", root_port)
+        await asyncio.sleep(0.05)
+
+        await root_subscriber.subscribe("a.b", lambda *m: received.append("root"))
+        await mid_subscriber.subscribe("a.b", lambda *m: received.append("mid"))
+        await asyncio.sleep(0.1)
+
+        await publisher.publish("a.b", b"once")
+        await asyncio.sleep(0.3)
+
+        assert sorted(received) == ["mid", "root"]
+    finally:
+        await root_subscriber.close()
+        await mid_subscriber.close()
+        await publisher.close()
+        await mid.close()
+        await root.close()
+
+
+@pytest.mark.asyncio
+async def test_subscriptions_between_nodes_torn_down_when_all_subscribers_leave():
+    root, root_port = await _start_node()
+    mid, mid_port = await _start_node()
+    root_subscriber = PubSubClient()
+    mid_subscriber = PubSubClient()
+
+    def on_publish(matched, actual, payload):
+        pass
+
+    try:
+        await mid.establish_connection("127.0.0.1", root_port)
+        await root_subscriber.connect("127.0.0.1", root_port)
+        await mid_subscriber.connect("127.0.0.1", mid_port)
+        await asyncio.sleep(0.05)
+
+        await root_subscriber.subscribe("a.b", on_publish)
+        await mid_subscriber.subscribe("a.b", on_publish)
+        await asyncio.sleep(0.1)
+
+        await root_subscriber.unsubscribe("a.b", on_publish)
+        await asyncio.sleep(0.1)
+        # root's only remaining interest is mid, so mid no longer needs to send to root
+        assert mid._upstream_subscriptions == {}
+        assert len(root._downstream_subscriptions["a.b"]) == 1
+
+        await mid_subscriber.unsubscribe("a.b", on_publish)
+        await asyncio.sleep(0.1)
+        for node in (root, mid):
+            assert node._downstream_subscriptions == {}
+            assert node._upstream_subscriptions == {}
+    finally:
+        await root_subscriber.close()
+        await mid_subscriber.close()
+        await mid.close()
+        await root.close()
+
+
+@pytest.mark.asyncio
+async def test_node_joining_later_learns_existing_subscriptions():
+    root, root_port = await _start_node()
+    mid, mid_port = await _start_node()
+    subscriber = PubSubClient()
+    publisher = PubSubClient()
+    received = []
+    try:
+        await subscriber.connect("127.0.0.1", root_port)
+        await asyncio.sleep(0.05)
+        await subscriber.subscribe(
+            "a.*", lambda matched, actual, payload: received.append((matched, actual, payload))
+        )
+        await asyncio.sleep(0.1)
+
+        # mid joins the tree only after the subscription was made
+        await mid.establish_connection("127.0.0.1", root_port)
+        await publisher.connect("127.0.0.1", mid_port)
+        await asyncio.sleep(0.1)
+
+        await publisher.publish("a.b", b"late")
+        await asyncio.sleep(0.1)
+
+        assert received == [("a.*", "a.b", b"late")]
+    finally:
+        await subscriber.close()
+        await publisher.close()
+        await mid.close()
+        await root.close()
+
+
+@pytest.mark.asyncio
+async def test_node_does_not_send_publish_back_to_its_source():
+    node, port = await _start_node()
+    peer = None
+    try:
+        peer = await open_peer_connection("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+        await peer.send(encode_message(SubscriptionMessage("a.b", subscribe=True)))
+        await peer.send(encode_message(PublishMessage("a.b", b"mine")))
+
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(peer.receive(), timeout=0.2)
+    finally:
+        if peer is not None:
+            await peer.close()
+        await node.close()
+
+
+@pytest.mark.asyncio
+async def test_client_receives_its_own_publish_exactly_once():
+    node, port = await _start_node()
+    client = PubSubClient()
+    received = []
+    try:
+        await client.connect("127.0.0.1", port)
+        await client.subscribe(
+            "a.*", lambda matched, actual, payload: received.append((matched, actual, payload))
+        )
+        await asyncio.sleep(0.1)
+
+        await client.publish("a.b", b"echo")
+        await asyncio.sleep(0.2)
+
+        assert received == [("a.*", "a.b", b"echo")]
+    finally:
+        await client.close()
+        await node.close()
+
+
+@pytest.mark.asyncio
+async def test_node_ignores_malformed_message_and_keeps_connection(caplog):
+    node, port = await _start_node()
+    peer = None
+    publisher = PubSubClient()
+    try:
+        peer = await open_peer_connection("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+
+        with caplog.at_level(logging.WARNING, logger="software_bus.pubsub"):
+            await peer.send(b"\x09garbage")
+            await asyncio.sleep(0.1)
+        assert len(node.downstream_connections) == 1
+        assert any("malformed" in record.getMessage() for record in caplog.records)
+
+        # the connection still works afterwards
+        await peer.send(encode_message(SubscriptionMessage("a.b", subscribe=True)))
+        await publisher.connect("127.0.0.1", port)
+        await asyncio.sleep(0.1)
+        await publisher.publish("a.b", b"still-here")
+
+        data = await asyncio.wait_for(peer.receive(), timeout=1)
+        assert decode_message(data) == PublishMessage("a.b", b"still-here")
+    finally:
+        await publisher.close()
+        if peer is not None:
+            await peer.close()
+        await node.close()
+
+
+@pytest.mark.asyncio
+async def test_client_ignores_malformed_message_and_keeps_receiving():
+    server, connected = await accept_one_peer_connection()
+    port = server.sockets[0].getsockname()[1]
+    client = PubSubClient()
+    received = []
+    try:
+        await client.connect("127.0.0.1", port)
+        peer = await asyncio.wait_for(connected, timeout=1)
+        await client.subscribe(
+            "a.b", lambda matched, actual, payload: received.append(payload)
+        )
+
+        await peer.send(b"\x09garbage")
+        await peer.send(encode_message(PublishMessage("a.b", b"after")))
+        await asyncio.sleep(0.1)
+
+        assert received == [b"after"]
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()

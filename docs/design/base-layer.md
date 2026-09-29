@@ -28,6 +28,10 @@ Funcionalities
 - **Register Downstream Connection Error Callback** Provide a function to call when there is error with a downstream connection.
     - A default downstream connection error callback will be registered during instantiation.
         - Print a message to indicate that a downstream connection has error, with the necessary details.
+- **Register Upstream New Connection Callback** Provide a function to call, with the connection, when a new upstream connection is established.
+    - Default is None, meaning not to call any function.
+- **Register Downstream New Connection Callback** Provide a function to call, with the connection, when a new downstream connection is accepted.
+    - Default is None, meaning not to call any function.
 - **Exceptions Related to a Connection**
     - Handling the following exception types:
         - Peer dropped connection.

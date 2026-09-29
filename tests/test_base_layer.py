@@ -422,3 +422,30 @@ async def test_default_downstream_receive_callback_excludes_source_connection():
             await peer_a.close()
         if peer_b is not None:
             await peer_b.close()
+
+
+@pytest.mark.asyncio
+async def test_new_connection_callbacks_called_for_upstream_and_downstream():
+    downstream_layer = BaseLayerNode()
+    upstream_layer = BaseLayerNode()
+    accepted = []
+    established = []
+    downstream_layer.register_downstream_new_connection_callback(accepted.append)
+
+    async def on_established(connection):
+        established.append(connection)
+
+    upstream_layer.register_upstream_new_connection_callback(on_established)
+    try:
+        server = await downstream_layer.accept_connection(port=0)
+        bound_port = server.sockets[0].getsockname()[1]
+
+        connection = await upstream_layer.establish_connection("127.0.0.1", bound_port)
+        await asyncio.sleep(0.05)
+
+        assert established == [connection]
+        assert accepted == downstream_layer.downstream_connections
+        assert len(accepted) == 1
+    finally:
+        await upstream_layer.close()
+        await downstream_layer.close()

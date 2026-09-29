@@ -60,17 +60,26 @@ def encode_message(message: Message) -> bytes:
 def _decode_subject(data: bytes, offset: int) -> Tuple[str, int]:
     """Decode the length-prefixed subject at `offset`; return it and the offset after it."""
     subject_start = offset + _SUBJECT_LENGTH_SIZE
+    if len(data) < subject_start:
+        raise ValueError("pub/sub message too short for its subject length")
     subject_length = int.from_bytes(data[offset:subject_start], "big")
     subject_end = subject_start + subject_length
+    if len(data) < subject_end:
+        raise ValueError("pub/sub message shorter than its subject length")
+    # UnicodeDecodeError is a ValueError, so a bad subject is reported the same way
     return data[subject_start:subject_end].decode("utf-8"), subject_end
 
 
 def decode_message(data: bytes) -> Message:
+    """Decode a pub/sub payload; raises ValueError if it is malformed."""
+    if not data:
+        raise ValueError("empty pub/sub message")
     msg_type = data[0]
     if msg_type == _MSG_SUBSCRIPTION:
-        subscribe = data[1] == 1
+        if len(data) < 2 or data[1] not in (0, 1):
+            raise ValueError("invalid subscription state")
         subject, _ = _decode_subject(data, 2)
-        return SubscriptionMessage(subject=subject, subscribe=subscribe)
+        return SubscriptionMessage(subject=subject, subscribe=data[1] == 1)
     if msg_type == _MSG_PUBLISH:
         subject, payload_start = _decode_subject(data, 1)
         return PublishMessage(subject=subject, payload=data[payload_start:])
@@ -88,15 +97,14 @@ def _add_subscriber(
 def _discard_subscriber(
     subscriptions: Dict[str, List[Connection]], subject: str, connection: Connection
 ) -> bool:
-    """Remove `connection` from `subject`'s list. Returns True if now empty."""
+    """Remove `connection` from `subject`'s list. Returns True if it was there."""
     connections = subscriptions.get(subject)
-    if connections is None:
-        return True
+    if connections is None or not any(c is connection for c in connections):
+        return False
     connections[:] = [c for c in connections if c is not connection]
     if not connections:
         subscriptions.pop(subject, None)
-        return True
-    return False
+    return True
 
 
 def _matching_connections(
@@ -138,6 +146,8 @@ class PubSubNode:
         self._base.register_downstream_connection_error_callback(
             self._on_downstream_connection_error
         )
+        self._base.register_upstream_new_connection_callback(self._on_new_connection)
+        self._base.register_downstream_new_connection_callback(self._on_new_connection)
         self._downstream_subscriptions: Dict[str, List[Connection]] = {}
         self._upstream_subscriptions: Dict[str, List[Connection]] = {}
         self._matcher = StringPatternMatcher()
@@ -162,10 +172,24 @@ class PubSubNode:
         self._upstream_subscriptions.clear()
 
     async def _on_downstream_receive(self, source: Connection, data: bytes) -> None:
-        await self._handle_message(source, decode_message(data), from_upstream=False)
+        await self._on_receive(source, data, from_upstream=False)
 
     async def _on_upstream_receive(self, source: Connection, data: bytes) -> None:
-        await self._handle_message(source, decode_message(data), from_upstream=True)
+        await self._on_receive(source, data, from_upstream=True)
+
+    async def _on_receive(self, source: Connection, data: bytes, *, from_upstream: bool) -> None:
+        try:
+            message = decode_message(data)
+        except ValueError as exc:
+            logger.warning("Ignoring malformed message from %s: %s", source.address, exc)
+            return
+        await self._handle_message(source, message, from_upstream=from_upstream)
+
+    async def _on_new_connection(self, connection: Connection) -> None:
+        """Tell a newly joined connection about every subject that has subscribers."""
+        subjects = {*self._downstream_subscriptions, *self._upstream_subscriptions}
+        for subject in subjects:
+            await self._send_to([connection], SubscriptionMessage(subject, subscribe=True))
 
     async def _on_downstream_connection_error(
         self, connection: Connection, error: Optional[BaseException]
@@ -197,7 +221,7 @@ class PubSubNode:
         if isinstance(message, SubscriptionMessage):
             await self._handle_subscription(source, message, from_upstream=from_upstream)
         elif isinstance(message, PublishMessage):
-            await self._handle_publish(message)
+            await self._handle_publish(source, message)
 
     async def _handle_subscription(
         self, source: Connection, message: SubscriptionMessage, *, from_upstream: bool
@@ -218,23 +242,48 @@ class PubSubNode:
         subject: str,
         connection: Connection,
     ) -> None:
-        became_empty = _discard_subscriber(subscriptions, subject, connection)
-        if became_empty and not self._has_subscribers(subject):
+        """Remove `connection` from `subject` and tell each neighbour that this
+        node no longer wants the subject from it, when that is now true.
+
+        A neighbour N is still wanted-from while any connection other than N
+        subscribes, so: no subscribers left -> tell everyone but `connection`;
+        exactly one left -> tell only that one; more -> tell nobody.
+        """
+        if not _discard_subscriber(subscriptions, subject, connection):
+            return
+        remaining = self._subscribers(subject)
+        if not remaining:
             targets = [
-                *self._base.downstream_connections,
-                *self._base.upstream_connections,
+                c
+                for c in (*self._base.downstream_connections, *self._base.upstream_connections)
+                if c is not connection
             ]
-            await self._send_to(targets, SubscriptionMessage(subject, subscribe=False))
+        elif len(remaining) == 1:
+            targets = remaining
+        else:
+            return
+        await self._send_to(targets, SubscriptionMessage(subject, subscribe=False))
 
-    def _has_subscribers(self, subject: str) -> bool:
-        return bool(self._downstream_subscriptions.get(subject)) or bool(
-            self._upstream_subscriptions.get(subject)
-        )
+    def _subscribers(self, subject: str) -> List[Connection]:
+        return [
+            *self._downstream_subscriptions.get(subject, []),
+            *self._upstream_subscriptions.get(subject, []),
+        ]
 
-    async def _handle_publish(self, message: PublishMessage) -> None:
+    async def _handle_publish(self, source: Connection, message: PublishMessage) -> None:
+        # never send a publish back where it came from: two neighbouring nodes
+        # with subscribers would otherwise bounce it between them forever
         targets = [
-            *_matching_connections(self._downstream_subscriptions, message.subject, self._matcher),
-            *_matching_connections(self._upstream_subscriptions, message.subject, self._matcher),
+            c
+            for c in (
+                *_matching_connections(
+                    self._downstream_subscriptions, message.subject, self._matcher
+                ),
+                *_matching_connections(
+                    self._upstream_subscriptions, message.subject, self._matcher
+                ),
+            )
+            if c is not source
         ]
         await self._send_to(targets, message)
 
@@ -293,10 +342,21 @@ class PubSubClient:
             await self._client.send(encode_message(SubscriptionMessage(subject, subscribe=False)))
 
     async def publish(self, subject: str, payload: bytes) -> None:
-        await self._client.send(encode_message(PublishMessage(subject, payload)))
+        """Publish `payload` under `subject`.
+
+        The node never sends a publish back to its sender, so this client's
+        own matching subscription callbacks are called here directly.
+        """
+        message = PublishMessage(subject, payload)
+        await self._client.send(encode_message(message))
+        await self._deliver(message)
 
     async def _on_receive(self, data: bytes) -> None:
-        message = decode_message(data)
+        try:
+            message = decode_message(data)
+        except ValueError as exc:
+            logger.warning("Ignoring malformed message: %s", exc)
+            return
         if isinstance(message, SubscriptionMessage):
             logger.info(
                 "Received subscription message: subject=%r subscribe=%s",
@@ -304,12 +364,17 @@ class PubSubClient:
                 message.subscribe,
             )
         elif isinstance(message, PublishMessage):
-            for subscribed_subject, callbacks in self._subscribe_callbacks.items():
-                if self._matcher.match(message.subject, subscribed_subject):
-                    for callback in callbacks:
-                        await _maybe_await(
-                            callback(subscribed_subject, message.subject, message.payload)
-                        )
+            await self._deliver(message)
+
+    async def _deliver(self, message: PublishMessage) -> None:
+        """Call every callback whose subscribed subject matches the published one."""
+        # snapshot: a callback may subscribe/unsubscribe while we iterate
+        for subscribed_subject, callbacks in list(self._subscribe_callbacks.items()):
+            if self._matcher.match(message.subject, subscribed_subject):
+                for callback in list(callbacks):
+                    await _maybe_await(
+                        callback(subscribed_subject, message.subject, message.payload)
+                    )
 
     async def __aenter__(self) -> "PubSubClient":
         return self

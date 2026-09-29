@@ -39,3 +39,13 @@ The pub/sub layer defines the contents of the base layer's `payload`. Every payl
 
 - `subject` is encoded the same way as in the Subscription Message.
 - `payload` is the published content: every byte after the subject, taken as-is with no further framing.
+
+### Malformed Messages
+
+A pub/sub payload is malformed if any of the following hold:
+
+- it is empty, or its type tag is not one listed above;
+- a Subscription Message's `state` is missing or is not `0x00` or `0x01`;
+- it is shorter than its `subject_length` says, or the subject is not valid UTF-8.
+
+How a receiver handles a malformed message is defined in `publish-subscribe.md`.
