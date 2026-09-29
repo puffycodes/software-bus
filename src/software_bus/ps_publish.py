@@ -9,7 +9,9 @@ from ._cli import (
     add_repeat_arguments,
     add_upstream_argument,
     configure_logging,
+    connect,
     repeat,
+    run_until_connection_lost,
     run_until_interrupted,
 )
 from .pubsub import PubSubClient
@@ -44,10 +46,14 @@ async def run(
     repeat_interval: float = 1.0,
 ) -> None:
     client = PubSubClient()
-    try:
-        await client.connect(host, port)
+
+    async def body() -> None:
+        await connect(client, host, port)
         payload = message.encode()
         await repeat(lambda: client.publish(subject, payload), repeat_count, repeat_interval)
+
+    try:
+        await run_until_connection_lost(client, body())
     finally:
         await client.close()
 

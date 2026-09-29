@@ -275,6 +275,13 @@ python -m software_bus.bl_server --upstream 10.0.0.1:8787 --listen 127.0.0.1:878
 `--upstream` and `--listen` may each be repeated to connect to, or listen
 on, multiple addresses.
 
+If an upstream server can't be reached, or a `--listen` address can't be
+used (e.g. it's already in use), `bl_server` prints
+`error: cannot connect to <ip>:<port> (...)` or
+`error: cannot listen on <ip>:<port> (...)` to stderr and exits with
+status 1. Losing an upstream connection later doesn't stop it; it keeps
+serving its other connections.
+
 `bl_client` connects to a bus node, optionally sends a message, then
 prints any messages it receives in reply. `--message` defaults to `None`,
 meaning it just connects and listens without sending anything:
@@ -299,9 +306,11 @@ Received messages are printed with a time stamp by default; pass
 python -m software_bus.bl_client --upstream 127.0.0.1:8787 --time-stamp false
 ```
 
-If the connection to the server is lost — even partway through a
-`--repeat-count` run — `bl_client` prints
-`error: connection to server lost (...)` to stderr and exits with status 1.
+If the server can't be reached, `bl_client` prints
+`error: cannot connect to <ip>:<port> (...)` to stderr and exits with
+status 1. Likewise if the connection is lost later — even partway through a
+`--repeat-count` run — it prints `error: connection to server lost (...)`
+and exits with status 1.
 
 All five command-line tools accept `--debug true` to print `INFO`-level
 logging (connection/disconnection events etc.) to stderr; it's off by
@@ -322,6 +331,9 @@ python -m software_bus.ps_server --listen 127.0.0.1:8787
 python -m software_bus.ps_server --upstream 10.0.0.1:8787 --listen 127.0.0.1:8787
 ```
 
+It reports an unreachable upstream or unusable `--listen` address the same
+way as `bl_server`.
+
 `ps_subscribe` connects to a `ps_server`, subscribes to one or more
 required, comma-separated subjects (`--subject`; a subject may be a
 wildcard pattern like `"a.*"`), and prints
@@ -333,7 +345,7 @@ python -m software_bus.ps_subscribe --upstream 127.0.0.1:8787 --subject "a.b,a.c
 ```
 
 Like `bl_client`, it exits with status 1 and an error message on stderr if
-the connection to the server is lost.
+it can't connect to the server or the connection is lost.
 
 `ps_publish` connects to a `ps_server` and publishes a message under a
 subject, `--repeat-count`/`--repeat-interval` times like `bl_client`.
@@ -344,6 +356,9 @@ python -m software_bus.ps_publish --upstream 127.0.0.1:8787 --subject "a.b" --me
 python -m software_bus.ps_publish --upstream 127.0.0.1:8787 --subject "a.b" --message "ping" \
     --repeat-count 5 --repeat-interval 0.5
 ```
+
+It too exits with status 1 and an error message on stderr if it can't
+connect, or if the connection is lost before it has finished publishing.
 
 If installed (`pip install -e .`), these are also available as the
 `ps_server`, `ps_subscribe`, and `ps_publish` commands directly.

@@ -85,6 +85,8 @@ Functionalities
     - parameter --upstream ip:port (default: None)
 - Accepting connection from zero or more downstream client.
     - parameter --listen ip:port (default: None)
+- Exit with an error message and exit status 1 if it cannot connect to an upstream server or cannot listen on an address (e.g. the address is already in use).
+    - Losing an upstream connection later is not a reason to exit; the server keeps serving its other connections.
 - Print logging information
     - parameter --debug true|false (default: false)
 
@@ -100,6 +102,6 @@ Functionalities
 - Listen for any received message.
     - print the message received with an optional time stamp
         - parameter --time-stamp true|false (default: true)
-- Exit with an error message and exit status 1 if the connection to the bl_server is lost, including while still sending messages.
+- Exit with an error message and exit status 1 if it cannot connect to the bl_server, or if the connection to the bl_server is lost, including while still sending messages.
 - Print logging information
     - parameter --debug true|false (default: false)

@@ -6,8 +6,10 @@ import pytest
 
 from software_bus import bl_client, bl_server, ps_publish, ps_server, ps_subscribe
 from software_bus._cli import (
+    ConnectFailed,
     ConnectionLost,
     build_server_arg_parser,
+    connect,
     parse_bool,
     print_received,
     repeat,
@@ -15,6 +17,9 @@ from software_bus._cli import (
     run_until_interrupted,
 )
 from software_bus.base_layer import DEFAULT_HOST, DEFAULT_PORT
+from software_bus.client import BaseLayerClient
+
+from helpers import free_port
 
 # Minimal valid argv for each script, so parse_args() succeeds.
 _SCRIPT_ARGV = [
@@ -175,3 +180,25 @@ def test_run_until_interrupted_exits_with_status_1_on_connection_loss():
 
     # sys.exit(<message>) prints the message to stderr and exits with status 1
     assert "connection to server lost" in str(exc_info.value.code)
+
+
+@pytest.mark.asyncio
+async def test_connect_raises_connect_failed_when_server_unreachable():
+    port = free_port()  # nothing listening here
+    client = BaseLayerClient()
+
+    with pytest.raises(ConnectFailed) as exc_info:
+        await connect(client, "127.0.0.1", port)
+
+    assert f"127.0.0.1:{port}" in str(exc_info.value)
+    assert isinstance(exc_info.value.error, OSError)
+
+
+def test_run_until_interrupted_exits_with_status_1_on_connect_failure():
+    async def main():
+        raise ConnectFailed("127.0.0.1", 1, ConnectionRefusedError("refused"))
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_until_interrupted(main())
+
+    assert "cannot connect to 127.0.0.1:1" in str(exc_info.value.code)

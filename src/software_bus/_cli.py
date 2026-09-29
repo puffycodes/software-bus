@@ -111,12 +111,21 @@ def build_server_arg_parser(description: str, server_name: str) -> argparse.Argu
 async def run_server(
     node: Any, upstreams: List[Tuple[str, int]], listens: List[Tuple[str, int]]
 ) -> None:
-    """Connect `node` upstream, start listening, and run until cancelled."""
+    """Connect `node` upstream, start listening, and run until cancelled.
+
+    Raises ConnectFailed / ListenFailed if an address can't be used.
+    """
     try:
         for host, port in upstreams:
-            await node.establish_connection(host, port)
+            try:
+                await node.establish_connection(host, port)
+            except OSError as exc:
+                raise ConnectFailed(host, port, exc) from exc
         for host, port in listens:
-            await node.accept_connection(host, port)
+            try:
+                await node.accept_connection(host, port)
+            except OSError as exc:
+                raise ListenFailed(host, port, exc) from exc
 
         await asyncio.Event().wait()
     finally:
@@ -139,12 +148,41 @@ def print_received(text: str, time_stamp: bool) -> None:
     print(text, flush=True)
 
 
-class ConnectionLost(Exception):
+class ScriptError(Exception):
+    """A failure a script reports as a one-line error message and exit status 1."""
+
+
+class ConnectFailed(ScriptError):
+    """A client script could not connect to its server."""
+
+    def __init__(self, host: str, port: int, error: OSError) -> None:
+        super().__init__(f"cannot connect to {host}:{port} ({error})")
+        self.error = error
+
+
+class ListenFailed(ScriptError):
+    """A server script could not listen on an address (e.g. it is in use)."""
+
+    def __init__(self, host: str, port: int, error: OSError) -> None:
+        super().__init__(f"cannot listen on {host}:{port} ({error})")
+        self.error = error
+
+
+class ConnectionLost(ScriptError):
     """A client script's connection to its server was lost."""
 
     def __init__(self, error: Optional[BaseException]) -> None:
         super().__init__(f"connection to server lost ({error})")
         self.error = error
+
+
+async def connect(client: Any, host: str, port: int) -> None:
+    """Connect `client` (a BaseLayerClient or PubSubClient), raising
+    ConnectFailed instead of a bare OSError if the server can't be reached."""
+    try:
+        await client.connect(host, port)
+    except OSError as exc:
+        raise ConnectFailed(host, port, exc) from exc
 
 
 async def run_until_connection_lost(client: Any, body: Awaitable[None]) -> None:
@@ -178,11 +216,12 @@ async def run_until_connection_lost(client: Any, body: Awaitable[None]) -> None:
 
 
 def run_until_interrupted(coro: Coroutine[Any, Any, None]) -> None:
-    """Run a script's top-level coroutine, exiting quietly on Ctrl-C and
-    with an error message and exit status 1 if the connection is lost."""
+    """Run a script's top-level coroutine, exiting quietly on Ctrl-C and with
+    an error message and exit status 1 on a ScriptError (e.g. the server
+    can't be reached, or the connection to it is lost)."""
     try:
         asyncio.run(coro)
     except KeyboardInterrupt:
         pass
-    except ConnectionLost as exc:
+    except ScriptError as exc:
         sys.exit(f"error: {exc}")

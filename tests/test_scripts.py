@@ -4,7 +4,7 @@ import asyncio
 import pytest
 
 from software_bus import bl_client, bl_server
-from software_bus._cli import parse_address, ConnectionLost
+from software_bus._cli import parse_address, ConnectFailed, ConnectionLost, ListenFailed
 from software_bus.base_layer import DEFAULT_HOST, DEFAULT_PORT, BaseLayerNode
 
 from helpers import accept_one_peer_connection, free_port, open_peer_connection
@@ -224,3 +224,29 @@ async def test_bl_client_run_stops_repeating_when_server_goes_away():
         task.cancel()
         await other_peer.close()
         await hub.close()
+
+
+@pytest.mark.asyncio
+async def test_bl_client_run_raises_connect_failed_when_server_unreachable():
+    with pytest.raises(ConnectFailed):
+        await asyncio.wait_for(bl_client.run("127.0.0.1", free_port(), "hi"), timeout=5)
+
+
+@pytest.mark.asyncio
+async def test_bl_server_run_raises_connect_failed_when_upstream_unreachable():
+    with pytest.raises(ConnectFailed):
+        await asyncio.wait_for(
+            bl_server.run([("127.0.0.1", free_port())], [("127.0.0.1", 0)]), timeout=5
+        )
+
+
+@pytest.mark.asyncio
+async def test_bl_server_run_raises_listen_failed_when_address_in_use():
+    occupier = await asyncio.start_server(lambda reader, writer: None, "127.0.0.1", 0)
+    busy_port = occupier.sockets[0].getsockname()[1]
+    try:
+        with pytest.raises(ListenFailed):
+            await asyncio.wait_for(bl_server.run([], [("127.0.0.1", busy_port)]), timeout=5)
+    finally:
+        occupier.close()
+        await occupier.wait_closed()

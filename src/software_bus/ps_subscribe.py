@@ -9,6 +9,7 @@ from ._cli import (
     add_debug_argument,
     add_upstream_argument,
     configure_logging,
+    connect,
     parse_bool,
     parse_subject_list,
     print_received,
@@ -56,7 +57,7 @@ async def run(
     client = PubSubClient()
 
     async def body() -> None:
-        await client.connect(host, port)
+        await connect(client, host, port)
         for subject in subjects:
             await client.subscribe(subject, on_publish)
         await asyncio.Event().wait()

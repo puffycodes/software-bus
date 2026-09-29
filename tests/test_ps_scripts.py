@@ -4,7 +4,7 @@ import asyncio
 import pytest
 
 from software_bus import ps_publish, ps_server, ps_subscribe
-from software_bus._cli import parse_subject_list, ConnectionLost
+from software_bus._cli import parse_subject_list, ConnectFailed, ConnectionLost, ListenFailed
 from software_bus.base_layer import DEFAULT_HOST, DEFAULT_PORT
 from software_bus.pubsub import PubSubClient, PubSubNode, SubscriptionMessage, decode_message, encode_message
 
@@ -224,3 +224,57 @@ async def test_ps_subscribe_run_raises_connection_lost_when_server_goes_away():
     finally:
         task.cancel()
         await hub.close()
+
+
+@pytest.mark.asyncio
+async def test_ps_subscribe_run_raises_connect_failed_when_server_unreachable():
+    with pytest.raises(ConnectFailed):
+        await asyncio.wait_for(ps_subscribe.run("127.0.0.1", free_port(), ["a.b"]), timeout=5)
+
+
+@pytest.mark.asyncio
+async def test_ps_publish_run_raises_connect_failed_when_server_unreachable():
+    with pytest.raises(ConnectFailed):
+        await asyncio.wait_for(
+            ps_publish.run("127.0.0.1", free_port(), "a.b", "hi"), timeout=5
+        )
+
+
+@pytest.mark.asyncio
+async def test_ps_publish_run_raises_connection_lost_when_server_goes_away_mid_repeat():
+    hub = PubSubNode()
+    server = await hub.accept_connection(port=0)
+    hub_port = server.sockets[0].getsockname()[1]
+
+    task = asyncio.ensure_future(
+        ps_publish.run("127.0.0.1", hub_port, "a.b", "hi", repeat_count=1000, repeat_interval=0.05)
+    )
+    try:
+        await asyncio.sleep(0.2)  # let a few publishes go out
+        await hub.close()
+
+        with pytest.raises(ConnectionLost):
+            await asyncio.wait_for(task, timeout=1)
+    finally:
+        task.cancel()
+        await hub.close()
+
+
+@pytest.mark.asyncio
+async def test_ps_server_run_raises_connect_failed_when_upstream_unreachable():
+    with pytest.raises(ConnectFailed):
+        await asyncio.wait_for(
+            ps_server.run([("127.0.0.1", free_port())], [("127.0.0.1", 0)]), timeout=5
+        )
+
+
+@pytest.mark.asyncio
+async def test_ps_server_run_raises_listen_failed_when_address_in_use():
+    occupier = await asyncio.start_server(lambda reader, writer: None, "127.0.0.1", 0)
+    busy_port = occupier.sockets[0].getsockname()[1]
+    try:
+        with pytest.raises(ListenFailed):
+            await asyncio.wait_for(ps_server.run([], [("127.0.0.1", busy_port)]), timeout=5)
+    finally:
+        occupier.close()
+        await occupier.wait_closed()

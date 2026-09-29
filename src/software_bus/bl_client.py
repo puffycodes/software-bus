@@ -10,6 +10,7 @@ from ._cli import (
     add_repeat_arguments,
     add_upstream_argument,
     configure_logging,
+    connect,
     parse_bool,
     print_received,
     repeat,
@@ -55,7 +56,7 @@ async def run(
     )
 
     async def body() -> None:
-        await client.connect(host, port)
+        await connect(client, host, port)
         if message is not None:
             data = message.encode()
             await repeat(lambda: client.send(data), repeat_count, repeat_interval)

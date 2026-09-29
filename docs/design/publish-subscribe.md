@@ -103,6 +103,8 @@
     - parameter --upstream ip:port (default: None)
 - Accepting connection from zero or more downstream client.
     - parameter --listen ip:port (default: None)
+- Exit with an error message and exit status 1 if it cannot connect to an upstream server or cannot listen on an address (e.g. the address is already in use).
+    - Losing an upstream connection later is not a reason to exit; the server keeps serving its other connections.
 - Print logging information
     - parameter --debug true|false (default: false)
 
@@ -115,7 +117,7 @@
     - parameter --subject "<subject_1>,<subject_2>,..." (required)
     - print the matched subject, the actual subject and the payload received with the publish message with an optional time stamp
         - parameter --time-stamp true|false (default: true)
-- Exit with an error message and exit status 1 if the connection to the server is lost.
+- Exit with an error message and exit status 1 if it cannot connect to the server, or if the connection to the server is lost.
 - Print logging information
     - parameter --debug true|false (default: false)
 
@@ -129,5 +131,6 @@
     - parameter --message "message to publish" (required)
     - parameter --repeat-count n (default: 1)
     - parameter --repeat-interval t (default: 1 sec)
+- Exit with an error message and exit status 1 if it cannot connect to the server, or if the connection to the server is lost while still publishing.
 - Print logging information
     - parameter --debug true|false (default: false)
