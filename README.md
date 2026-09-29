@@ -77,7 +77,8 @@ hub.register_downstream_receive_callback(
 When a connection drops, or a send/receive on it fails, it's removed from
 `upstream_connections`/`downstream_connections` and an upstream or
 downstream connection error callback is called with the `Connection` and
-the exception (`None` on a clean shutdown). The default callbacks just log
+the exception (`None` on a clean shutdown); once the callback returns, the
+connection is closed, so don't keep it around to send on. The default callbacks just log
 the event; override them with `register_upstream_connection_error_callback`
 / `register_downstream_connection_error_callback` to react instead:
 

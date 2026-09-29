@@ -37,9 +37,11 @@ Funcionalities
         - If it is an upstream connection:
             - Remove the upstream connection from the list of upstream connection.
             - Call the upstream connection error callback with the connection details and error.
+            - Close the upstream connection.
         - If it is a downstream connection:
             - Remove the downstream connection from the list of downstream connections.
             - Call the downstream connection error callback with the connection details and error.
+            - Close the downstream connection.
 
 - **Internal Data** Keep the following lists:
     - a list of IP/port that it is accepting connections on.
