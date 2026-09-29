@@ -21,28 +21,35 @@ wire formats for both layers are specified in
 ## Install
 
 ```
-pip install --user -e ".[dev]"
+python3 -m pip install --user -e ".[dev]"
 ```
 
-If your `pip`/`setuptools` version doesn't support editable installs for
-this `pyproject.toml`, run code and tests with `src/` on the path instead:
+The project has no `setup.py`, so an editable install needs pip 21.3 or
+newer (pip fetches the `setuptools>=64` it needs by itself). Older systems
+ship an older pip — Ubuntu 20.04's is 20.0.2 — and fail with an error about
+a missing `setup.py`. You don't need a newer Python to fix that: upgrade pip
+for your user only (pip 25.0.x is the last release that supports
+Python 3.8), then install as above:
 
 ```
-PYTHONPATH=src python3 -m pytest
+python3 -m pip install --user --upgrade "pip<25.1"
 ```
+
+On Windows, `python3` is often only a Microsoft Store placeholder, so use
+`python` instead.
 
 ## Running the tests
 
 ```
-PYTHONPATH=src python3 -m pytest -v
+python3 -m pytest -v
 ```
 
-On Windows, `python3` is often only a Microsoft Store placeholder, so use
-`python` instead; the `PYTHONPATH=src ...` prefix above also needs a POSIX
-shell such as Git Bash. In PowerShell:
+Without installing, you can run code and tests with `src/` on the path
+instead:
 
 ```
-$env:PYTHONPATH = "src"; python -m pytest -v
+PYTHONPATH=src python3 -m pytest -v            # POSIX shells, e.g. bash or Git Bash
+$env:PYTHONPATH = "src"; python -m pytest -v   # PowerShell
 ```
 
 ## Usage

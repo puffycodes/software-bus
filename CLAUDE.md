@@ -6,20 +6,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The interpreter name depends on the machine this shared checkout is used from:
 
-- **Linux VM:** there is no `python` on PATH — use `python3` explicitly (as in the commands below).
+- **WSL (Ubuntu 20.04, Python 3.8):** there is no `python` on PATH — use `python3` explicitly (as in the commands below). Upgrading Python itself isn't practical there.
 - **Windows host:** `python3` is only the Microsoft Store stub ("Python was not found") — use `python`, which resolves to the `standard-dev-3.13` virtualenv (Python 3.13). Substitute `python` for `python3` in the commands below.
 
-```
-# Install (editable install currently fails: this pyproject.toml has no setup.py,
-# and `pip install -e .` requires one in this environment). Use PYTHONPATH instead:
-PYTHONPATH=src python3 -m pytest            # run the full test suite
-PYTHONPATH=src python3 -m pytest -v
-PYTHONPATH=src python3 -m pytest tests/test_base_layer.py::test_close_clears_connection_lists_and_addresses  # single test
-PYTHONPATH=src python3 -m pytest tests/test_pubsub.py -v   # single file
+Editable install (once per environment). There is no `setup.py`, so this needs pip ≥ 21.3; `pyproject.toml` requires `setuptools>=64`, which pip fetches into an isolated build environment by itself. WSL's Ubuntu pip is 20.0.2, too old — upgrade it for the user first (pip 25.0.x is the last to support Python 3.8; this leaves the system pip and Python untouched):
 
-# Run a CLI tool directly against the source tree, same way:
-PYTHONPATH=src python3 -m software_bus.bl_server --listen 127.0.0.1:8787
 ```
+python3 -m pip install --user --upgrade "pip<25.1"   # WSL only, once
+python3 -m pip install --user -e ".[dev]"            # WSL; on Windows: python -m pip install -e ".[dev]"
+```
+
+```
+python3 -m pytest            # run the full test suite
+python3 -m pytest -v
+python3 -m pytest tests/test_base_layer.py::test_close_clears_connection_lists_and_addresses  # single test
+python3 -m pytest tests/test_pubsub.py -v   # single file
+
+python3 -m software_bus.bl_server --listen 127.0.0.1:8787   # or just: bl_server --listen ...
+```
+
+In an environment where the package isn't installed, prefix any of these with `PYTHONPATH=src` (POSIX shells; in PowerShell `$env:PYTHONPATH = "src"; ...`) to run against the source tree instead.
 
 No linter/formatter is configured in this repo.
 
