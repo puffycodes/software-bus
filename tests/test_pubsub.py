@@ -939,3 +939,56 @@ async def test_client_ignores_malformed_message_and_keeps_receiving():
         await client.close()
         server.close()
         await server.wait_closed()
+
+
+def test_encode_accepts_subject_at_length_limit():
+    subject = "a" * 65535
+    assert decode_message(encode_message(PublishMessage(subject, b""))).subject == subject
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        SubscriptionMessage("a" * 65536, subscribe=True),
+        PublishMessage("a" * 65536, b"payload"),
+        PublishMessage("\u00e9" * 32768, b""),  # 65536 bytes once utf-8 encoded
+    ],
+)
+def test_encode_rejects_subject_over_length_limit(message):
+    with pytest.raises(ValueError):
+        encode_message(message)
+
+
+@pytest.mark.asyncio
+async def test_subscribe_with_too_long_subject_raises_and_registers_nothing():
+    node, port = await _start_node()
+    client = PubSubClient()
+    try:
+        await client.connect("127.0.0.1", port)
+        with pytest.raises(ValueError):
+            await client.subscribe("a" * 65536, lambda matched, actual, payload: None)
+        assert client._subscribe_callbacks == {}
+    finally:
+        await client.close()
+        await node.close()
+
+
+@pytest.mark.asyncio
+async def test_client_connection_error_callback_called_when_node_goes_away():
+    node, port = await _start_node()
+    client = PubSubClient()
+    errors = []
+    client.register_connection_error_callback(
+        lambda connection, error: errors.append(error)
+    )
+    try:
+        await client.connect("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+
+        await node.close()
+        await asyncio.sleep(0.1)
+
+        assert len(errors) == 1
+    finally:
+        await client.close()
+        await node.close()

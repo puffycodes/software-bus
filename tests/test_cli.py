@@ -6,10 +6,12 @@ import pytest
 
 from software_bus import bl_client, bl_server, ps_publish, ps_server, ps_subscribe
 from software_bus._cli import (
+    ConnectionLost,
     build_server_arg_parser,
     parse_bool,
     print_received,
     repeat,
+    run_until_connection_lost,
     run_until_interrupted,
 )
 from software_bus.base_layer import DEFAULT_HOST, DEFAULT_PORT
@@ -108,3 +110,68 @@ def test_run_until_interrupted_swallows_keyboard_interrupt():
         raise KeyboardInterrupt
 
     run_until_interrupted(main())  # must not raise
+
+
+class _FakeClient:
+    """Stands in for BaseLayerClient/PubSubClient: just holds the error callback."""
+
+    def __init__(self):
+        self.on_error = None
+
+    def register_connection_error_callback(self, callback):
+        self.on_error = callback
+
+
+@pytest.mark.asyncio
+async def test_run_until_connection_lost_stops_body_and_raises_on_loss():
+    client = _FakeClient()
+    body_cancelled = []
+
+    async def body():
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            body_cancelled.append(True)
+            raise
+
+    task = asyncio.ensure_future(run_until_connection_lost(client, body()))
+    await asyncio.sleep(0.01)
+    error = ConnectionResetError("peer gone")
+    client.on_error(object(), error)
+
+    with pytest.raises(ConnectionLost) as exc_info:
+        await asyncio.wait_for(task, timeout=1)
+    assert exc_info.value.error is error
+    assert body_cancelled == [True]
+
+
+@pytest.mark.asyncio
+async def test_run_until_connection_lost_returns_when_body_finishes():
+    ran = []
+
+    async def body():
+        ran.append(True)
+
+    await run_until_connection_lost(_FakeClient(), body())
+
+    assert ran == [True]
+
+
+@pytest.mark.asyncio
+async def test_run_until_connection_lost_propagates_body_error_without_loss():
+    async def body():
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await run_until_connection_lost(_FakeClient(), body())
+
+
+def test_run_until_interrupted_exits_with_status_1_on_connection_loss():
+    async def main():
+        raise ConnectionLost(ConnectionResetError("peer gone"))
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_until_interrupted(main())
+
+    # sys.exit(<message>) prints the message to stderr and exits with status 1
+    assert "connection to server lost" in str(exc_info.value.code)

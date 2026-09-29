@@ -13,6 +13,7 @@ from ._cli import (
     parse_bool,
     print_received,
     repeat,
+    run_until_connection_lost,
     run_until_interrupted,
 )
 from .client import BaseLayerClient
@@ -52,12 +53,16 @@ async def run(
     client.register_receive_callback(
         lambda data: print_received(data.decode(errors="replace"), time_stamp)
     )
-    try:
+
+    async def body() -> None:
         await client.connect(host, port)
         if message is not None:
             data = message.encode()
             await repeat(lambda: client.send(data), repeat_count, repeat_interval)
         await asyncio.Event().wait()
+
+    try:
+        await run_until_connection_lost(client, body())
     finally:
         await client.close()
 

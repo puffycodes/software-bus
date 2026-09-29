@@ -63,6 +63,7 @@
     - Register the necessary receive callback to achieve its job
 
 - **Instantiation** Create an instance of the class
+- **Register Connection Error Callback** Provide a function to call when there is error with the connection to the upstream node. This is passed straight to the Base Layer Client, with the same default.
 - **Subscribe**
     - Parameters:
         - subject to subscribe to
@@ -71,6 +72,7 @@
                 - the subject matched to
                 - the actual subject in the publish message received
                 - the payload in the publish message
+    - If the subject is too long to encode (see `data-format.md`), report an error and change nothing.
     - Register the subscription callback under the given subject.
         - A subject can have multiple subscription callbacks.
     - If this is the first subscription to the given subject, send a subscription message to the upstream node to subscribe the given subject.
@@ -113,6 +115,7 @@
     - parameter --subject "<subject_1>,<subject_2>,..." (required)
     - print the matched subject, the actual subject and the payload received with the publish message with an optional time stamp
         - parameter --time-stamp true|false (default: true)
+- Exit with an error message and exit status 1 if the connection to the server is lost.
 - Print logging information
     - parameter --debug true|false (default: false)
 

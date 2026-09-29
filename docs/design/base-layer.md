@@ -2,21 +2,21 @@
 
 ## Base Layer Node Class
 
-Funcionalities
+Functionalities
 
 - **Instantiation** Create an instance of the class.
 
-- **Accept Connection** Start accepting TCP connections from downstream instances on a given IP address (default 127.0.0.1) and a give port (default 8787).
+- **Accept Connection** Start accepting TCP connections from downstream instances on a given IP address (default 127.0.0.1) and a given port (default 8787).
     - The instance can accept connections on multiple IP/port pairs.
-    - The instance will not be accepting connections on any IP/port when it is instantiate.
+    - The instance will not be accepting connections on any IP/port when it is instantiated.
     - If the instance is already accepting connections on the given IP/port, this will do nothing.
 - **Establish Connection** Create a TCP connection to an upstream instance.
 
 - **Register Upstream Receive Callback** Provide a function to call when data are received from any of the upstream connections.
-    - A default upstream receive callback will be registerd during instantiation.
+    - A default upstream receive callback will be registered during instantiation.
         - The default upstream receive callback will re-send the data received from a upstream connection to all the downstream connections, as well as all the upstream connections, other than itself.
 - **Register Downstream Receive Callback** Provide a function to call when data are received from any of the downstream connections.
-    - A default downstream receive callback will be registerd during instantiation.
+    - A default downstream receive callback will be registered during instantiation.
         - The default downstream receive callback will re-send the data received from a downstream connection to all the upstream connections, as well as all the downstream connections, other than itself.
 - **Action Upon Receiving of Data** Action depends on the connection that the data is received from.
     - If the data is received from an upstream connections, call the upstream receive callback function with the data as a parameter.
@@ -63,6 +63,20 @@ Functionalities
 - **Register Receive Callback** Provide a function to call when data are received.
     - Default is None, meaning not to call any function.
 - **Action Upon Receiving of Data** Call the given function, if any, with the data as one of the parameters.
+- **Register Connection Error Callback** Provide a function to call when there is error with the connection.
+    - A default connection error callback will be registered during instantiation.
+        - Print a message to indicate that the connection has error, with the necessary details.
+- **Exceptions Related to the Connection**
+    - Handling the following exception types:
+        - Peer dropped connection.
+        - Failure to send data to the connection.
+        - Failure to receive data from the connection.
+    - Action:
+        - Forget the connection, so that the client is no longer connected.
+        - Call the connection error callback with the connection details and error.
+        - Close the connection.
+        - If it was a failure to send, also report the failure to the caller of Send.
+    - Closing the client itself is not an error, and does not call the connection error callback.
 
 ## bl_server Script
 
@@ -80,11 +94,12 @@ Functionalities
 - Connect to an upstream bl_server.
     - parameter --upstream ip:port (default: as per default in Base Layer Node Class)
 - Send messages.
-    - parameter --message "message to be send" (default: None, don't send any message)
+    - parameter --message "message to be sent" (default: None, don't send any message)
     - parameter --repeat-count n (default: 1)
     - parameter --repeat-interval t (default: 1 sec)
-- Listen for any receieved message.
+- Listen for any received message.
     - print the message received with an optional time stamp
         - parameter --time-stamp true|false (default: true)
+- Exit with an error message and exit status 1 if the connection to the bl_server is lost, including while still sending messages.
 - Print logging information
     - parameter --debug true|false (default: false)

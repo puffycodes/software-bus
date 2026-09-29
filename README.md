@@ -37,6 +37,14 @@ PYTHONPATH=src python3 -m pytest
 PYTHONPATH=src python3 -m pytest -v
 ```
 
+On Windows, `python3` is often only a Microsoft Store placeholder, so use
+`python` instead; the `PYTHONPATH=src ...` prefix above also needs a POSIX
+shell such as Git Bash. In PowerShell:
+
+```
+$env:PYTHONPATH = "src"; python -m pytest -v
+```
+
 ## Usage
 
 ### `BaseLayerNode` — a bus node
@@ -142,10 +150,25 @@ async def main():
 asyncio.run(main())
 ```
 
+If the connection drops, or a send/receive on it fails, the client forgets
+it (`client.connection` becomes `None`), calls its connection error callback
+with the `Connection` and the exception, and closes it. A failed `send` also
+re-raises the error to the caller. The default callback just logs; register
+your own to react, e.g. to reconnect:
+
+```python
+client.register_connection_error_callback(
+    lambda connection, error: print("lost connection:", connection.address, error)
+)
+```
+
+Closing the client yourself with `close()` doesn't call the callback.
+
 ### `PubSubNode` and `PubSubClient` — publish/subscribe
 
 A publish/subscribe layer built on top of `BaseLayerNode`/`BaseLayerClient`.
-A **subject** is a `.`-separated string (e.g. `"a.b"`). A `PubSubClient`
+A **subject** is a `.`-separated string (e.g. `"a.b"`) of at most 65535
+bytes once UTF-8 encoded; a longer one raises `ValueError`. A `PubSubClient`
 subscribes to a subject with a callback to receive future publishes tagged
 with it, and publishes payloads under a subject; a `PubSubNode` tracks, per
 subscribed subject, which of its connections are interested and only
@@ -217,6 +240,8 @@ on it failed) as an implicit unsubscribe from every subject that connection
 was subscribed to — exactly as if the peer had unsubscribed itself.
 A malformed message (see [`docs/design/data-format.md`](docs/design/data-format.md))
 is logged and ignored by both nodes and clients; the connection is kept.
+A `PubSubClient` reports a lost connection to its node the same way a
+`BaseLayerClient` does, via `register_connection_error_callback`.
 
 #### Wire format
 
@@ -274,6 +299,10 @@ Received messages are printed with a time stamp by default; pass
 python -m software_bus.bl_client --upstream 127.0.0.1:8787 --time-stamp false
 ```
 
+If the connection to the server is lost — even partway through a
+`--repeat-count` run — `bl_client` prints
+`error: connection to server lost (...)` to stderr and exits with status 1.
+
 All five command-line tools accept `--debug true` to print `INFO`-level
 logging (connection/disconnection events etc.) to stderr; it's off by
 default:
@@ -302,6 +331,9 @@ with a time stamp by default (`--time-stamp false` to omit it):
 ```
 python -m software_bus.ps_subscribe --upstream 127.0.0.1:8787 --subject "a.b,a.c"
 ```
+
+Like `bl_client`, it exits with status 1 and an error message on stderr if
+the connection to the server is lost.
 
 `ps_publish` connects to a `ps_server` and publishes a message under a
 subject, `--repeat-count`/`--repeat-interval` times like `bl_client`.

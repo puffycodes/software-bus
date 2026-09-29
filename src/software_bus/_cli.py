@@ -3,8 +3,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import sys
 from datetime import datetime
-from typing import Any, Awaitable, Callable, Coroutine, List, Tuple
+from typing import Any, Awaitable, Callable, Coroutine, List, Optional, Tuple
 
 from .base_layer import DEFAULT_HOST, DEFAULT_PORT
 
@@ -138,9 +139,50 @@ def print_received(text: str, time_stamp: bool) -> None:
     print(text, flush=True)
 
 
+class ConnectionLost(Exception):
+    """A client script's connection to its server was lost."""
+
+    def __init__(self, error: Optional[BaseException]) -> None:
+        super().__init__(f"connection to server lost ({error})")
+        self.error = error
+
+
+async def run_until_connection_lost(client: Any, body: Awaitable[None]) -> None:
+    """Run `body`, stopping it and raising ConnectionLost as soon as `client`
+    (a BaseLayerClient or PubSubClient) reports its connection lost.
+
+    The loss may happen at any point in `body`, e.g. partway through a
+    `repeat` of sends, not only while it idles.
+    """
+    lost: asyncio.Future = asyncio.get_running_loop().create_future()
+
+    def on_connection_error(connection: Any, error: Optional[BaseException]) -> None:
+        if not lost.done():
+            lost.set_result(error)
+
+    client.register_connection_error_callback(on_connection_error)
+    body_task = asyncio.ensure_future(body)
+    try:
+        await asyncio.wait({body_task, lost}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        if not body_task.done():
+            body_task.cancel()
+    if lost.done():
+        # a send that failed with the loss re-raises into body; the loss is the story
+        try:
+            await body_task
+        except BaseException:
+            pass
+        raise ConnectionLost(lost.result())
+    await body_task
+
+
 def run_until_interrupted(coro: Coroutine[Any, Any, None]) -> None:
-    """Run a script's top-level coroutine, exiting quietly on Ctrl-C."""
+    """Run a script's top-level coroutine, exiting quietly on Ctrl-C and
+    with an error message and exit status 1 if the connection is lost."""
     try:
         asyncio.run(coro)
     except KeyboardInterrupt:
         pass
+    except ConnectionLost as exc:
+        sys.exit(f"error: {exc}")

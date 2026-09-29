@@ -12,6 +12,7 @@ from ._cli import (
     parse_bool,
     parse_subject_list,
     print_received,
+    run_until_connection_lost,
     run_until_interrupted,
 )
 from .pubsub import PubSubClient
@@ -53,11 +54,15 @@ async def run(
         )
 
     client = PubSubClient()
-    try:
+
+    async def body() -> None:
         await client.connect(host, port)
         for subject in subjects:
             await client.subscribe(subject, on_publish)
         await asyncio.Event().wait()
+
+    try:
+        await run_until_connection_lost(client, body())
     finally:
         await client.close()
 

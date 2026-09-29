@@ -37,7 +37,9 @@ Connection lifecycle and error handling follows one path no matter where the fai
 
 Shared internals to reuse rather than re-inline: `_start_connection` (wraps a new socket in a `Connection`, appends it to the right list, starts its `_relay_loop`), `_connections(from_upstream)` (the matching list), `_peers_except(source)` (every connection but the sender — the flooding target set, also used by pub/sub), and the module-level `_maybe_await` (every user callback may be sync or async; `client.py` and `pubsub.py` import it too).
 
-`BaseLayerClient` is the leaf side: connects once, sends, and dispatches received data to a single registered callback.
+`BaseLayerClient` is the leaf side: connects once, sends, and dispatches received data to a single registered callback. Its failures mirror the node's single path: `_receive_loop` and `send` both go through the client's own `_handle_connection_error` (forget `self.connection`, call the connection error callback, close), and `send` re-raises after reporting. A `CancelledError` in `_receive_loop` means `close()` was called and is deliberately *not* reported. `PubSubClient.register_connection_error_callback` just forwards to it.
+
+Subjects are capped at 65535 UTF-8 bytes by the 2-byte length field; `encode_message` raises `ValueError` beyond that, and `PubSubClient.subscribe` encodes *before* registering the callback so a rejected subject leaves no state behind.
 
 ### Publish/Subscribe layer (`pubsub.py`)
 
@@ -55,7 +57,7 @@ All `PubSubNode` sends go through the base layer's `_relay_to` (via `_send_to`),
 
 ### CLI scripts
 
-`bl_server`/`bl_client`/`ps_server`/`ps_subscribe`/`ps_publish` are thin argparse wrappers around the classes above; everything they share lives in `_cli.py`: value parsers (`parse_address` for `ip:port`, `parse_bool` for `true|false` flags, `parse_subject_list` for comma-separated subjects), argument builders (`add_debug_argument`, `add_upstream_argument`, `add_repeat_arguments`, and `build_server_arg_parser` for both servers), and runtime helpers (`configure_logging`, `run_server`, `repeat`, `print_received`, `run_until_interrupted`). `bl_server`/`ps_server` differ only in the node class they pass to `run_server`. Add new shared options/behaviour there rather than copying it into each script. Each script's `run(...)` coroutine is unit-tested directly (see `tests/test_scripts.py`, `tests/test_ps_scripts.py`) separately from its `build_arg_parser()`; the shared `_cli.py` helpers, and options every script must accept (e.g. `--debug`), are tested in `tests/test_cli.py`.
+`bl_server`/`bl_client`/`ps_server`/`ps_subscribe`/`ps_publish` are thin argparse wrappers around the classes above; everything they share lives in `_cli.py`: value parsers (`parse_address` for `ip:port`, `parse_bool` for `true|false` flags, `parse_subject_list` for comma-separated subjects), argument builders (`add_debug_argument`, `add_upstream_argument`, `add_repeat_arguments`, and `build_server_arg_parser` for both servers), and runtime helpers (`configure_logging`, `run_server`, `repeat`, `print_received`, `run_until_connection_lost`, `run_until_interrupted`). Client scripts that stay running (`bl_client`, `ps_subscribe`) wrap their body in `run_until_connection_lost`, which races it against the client's connection error callback and raises `ConnectionLost`; `run_until_interrupted` turns that into an error message and exit status 1. `bl_server`/`ps_server` differ only in the node class they pass to `run_server`. Add new shared options/behaviour there rather than copying it into each script. Each script's `run(...)` coroutine is unit-tested directly (see `tests/test_scripts.py`, `tests/test_ps_scripts.py`) separately from its `build_arg_parser()`; the shared `_cli.py` helpers, and options every script must accept (e.g. `--debug`), are tested in `tests/test_cli.py`.
 
 ### Testing conventions
 

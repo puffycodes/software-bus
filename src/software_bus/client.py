@@ -4,7 +4,13 @@ import asyncio
 import logging
 from typing import Any, Callable, Optional
 
-from .base_layer import DEFAULT_HOST, DEFAULT_PORT, Connection, _maybe_await
+from .base_layer import (
+    DEFAULT_HOST,
+    DEFAULT_PORT,
+    Connection,
+    ConnectionErrorCallback,
+    _maybe_await,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +25,9 @@ class BaseLayerClient:
     def __init__(self) -> None:
         self.connection: Optional[Connection] = None
         self._receive_callback: Optional[ReceiveCallback] = None
+        self._connection_error_callback: ConnectionErrorCallback = (
+            self._default_connection_error_callback
+        )
 
     async def connect(
         self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT
@@ -33,9 +42,16 @@ class BaseLayerClient:
         return connection
 
     async def send(self, data: bytes) -> None:
-        if self.connection is None:
+        """Send `data`; a send failure is reported to the connection error
+        callback and then re-raised to the caller."""
+        connection = self.connection
+        if connection is None:
             raise RuntimeError("not connected")
-        await self.connection.send(data)
+        try:
+            await connection.send(data)
+        except OSError as exc:
+            await self._handle_connection_error(connection, exc)
+            raise
 
     def register_receive_callback(self, callback: Optional[ReceiveCallback]) -> None:
         """Set the function to call with data as it is received.
@@ -44,13 +60,37 @@ class BaseLayerClient:
         """
         self._receive_callback = callback
 
+    def register_connection_error_callback(self, callback: ConnectionErrorCallback) -> None:
+        """Set the function to call when there is an error with the connection."""
+        self._connection_error_callback = callback
+
     async def _receive_loop(self, connection: Connection) -> None:
         try:
             while True:
                 data = await connection.receive()
                 await self._on_data_received(data)
-        except (asyncio.IncompleteReadError, OSError, asyncio.CancelledError):
-            pass
+        except (asyncio.IncompleteReadError, OSError) as exc:
+            await self._handle_connection_error(connection, exc)
+        except asyncio.CancelledError:
+            pass  # close() cancelled us: not an error
+
+    async def _handle_connection_error(
+        self, connection: Connection, error: Optional[BaseException]
+    ) -> None:
+        """Forget the failed connection, report it, then close it (once only)."""
+        if self.connection is not connection:
+            return
+        self.connection = None
+        try:
+            await _maybe_await(self._connection_error_callback(connection, error))
+        finally:
+            await connection.close()
+
+    async def _default_connection_error_callback(
+        self, connection: Connection, error: Optional[BaseException]
+    ) -> None:
+        """Log that the connection has an error."""
+        logger.info("The connection has error: %s (%s)", connection.address, error)
 
     async def _on_data_received(self, data: bytes) -> None:
         if self._receive_callback is not None:

@@ -4,7 +4,7 @@ import asyncio
 import pytest
 
 from software_bus import bl_client, bl_server
-from software_bus._cli import parse_address
+from software_bus._cli import parse_address, ConnectionLost
 from software_bus.base_layer import DEFAULT_HOST, DEFAULT_PORT, BaseLayerNode
 
 from helpers import accept_one_peer_connection, free_port, open_peer_connection
@@ -181,5 +181,46 @@ async def test_bl_client_run_sends_message_repeat_count_times():
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+        await other_peer.close()
+        await hub.close()
+
+
+@pytest.mark.asyncio
+async def test_bl_client_run_raises_connection_lost_when_server_goes_away():
+    hub = BaseLayerNode()
+    server = await hub.accept_connection(port=0)
+    hub_port = server.sockets[0].getsockname()[1]
+
+    task = asyncio.ensure_future(bl_client.run("127.0.0.1", hub_port, None))
+    try:
+        await asyncio.sleep(0.1)  # let bl_client connect
+        await hub.close()
+
+        with pytest.raises(ConnectionLost):
+            await asyncio.wait_for(task, timeout=1)
+    finally:
+        task.cancel()
+        await hub.close()
+
+
+@pytest.mark.asyncio
+async def test_bl_client_run_stops_repeating_when_server_goes_away():
+    hub = BaseLayerNode()
+    server = await hub.accept_connection(port=0)
+    hub_port = server.sockets[0].getsockname()[1]
+    other_peer = await open_peer_connection("127.0.0.1", hub_port)
+
+    task = asyncio.ensure_future(
+        bl_client.run("127.0.0.1", hub_port, "hi", repeat_count=1000, repeat_interval=0.05)
+    )
+    try:
+        assert await asyncio.wait_for(other_peer.receive(), timeout=1) == b"hi"
+        await hub.close()
+
+        # exits mid-repeat instead of carrying on with the remaining sends
+        with pytest.raises(ConnectionLost):
+            await asyncio.wait_for(task, timeout=1)
+    finally:
+        task.cancel()
         await other_peer.close()
         await hub.close()

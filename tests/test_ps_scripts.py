@@ -4,7 +4,7 @@ import asyncio
 import pytest
 
 from software_bus import ps_publish, ps_server, ps_subscribe
-from software_bus._cli import parse_subject_list
+from software_bus._cli import parse_subject_list, ConnectionLost
 from software_bus.base_layer import DEFAULT_HOST, DEFAULT_PORT
 from software_bus.pubsub import PubSubClient, PubSubNode, SubscriptionMessage, decode_message, encode_message
 
@@ -206,3 +206,21 @@ async def test_ps_publish_run_publishes_message_repeat_count_times():
         await hub.close()
 
 
+
+
+@pytest.mark.asyncio
+async def test_ps_subscribe_run_raises_connection_lost_when_server_goes_away():
+    hub = PubSubNode()
+    server = await hub.accept_connection(port=0)
+    hub_port = server.sockets[0].getsockname()[1]
+
+    task = asyncio.ensure_future(ps_subscribe.run("127.0.0.1", hub_port, ["a.b"]))
+    try:
+        await asyncio.sleep(0.1)  # let ps_subscribe connect and subscribe
+        await hub.close()
+
+        with pytest.raises(ConnectionLost):
+            await asyncio.wait_for(task, timeout=1)
+    finally:
+        task.cancel()
+        await hub.close()

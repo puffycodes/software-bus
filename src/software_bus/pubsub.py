@@ -13,7 +13,14 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-from .base_layer import DEFAULT_HOST, DEFAULT_PORT, BaseLayerNode, Connection, _maybe_await
+from .base_layer import (
+    DEFAULT_HOST,
+    DEFAULT_PORT,
+    BaseLayerNode,
+    Connection,
+    ConnectionErrorCallback,
+    _maybe_await,
+)
 from .client import BaseLayerClient
 from .subject_matcher import StringPatternMatcher
 
@@ -22,6 +29,7 @@ logger = logging.getLogger(__name__)
 _MSG_SUBSCRIPTION = 0x01
 _MSG_PUBLISH = 0x02
 _SUBJECT_LENGTH_SIZE = 2
+_MAX_SUBJECT_LENGTH = 2 ** (8 * _SUBJECT_LENGTH_SIZE) - 1
 
 
 @dataclass
@@ -48,6 +56,10 @@ PublishCallback = Callable[[str, str, bytes], Any]
 
 def encode_message(message: Message) -> bytes:
     subject_bytes = message.subject.encode("utf-8")
+    if len(subject_bytes) > _MAX_SUBJECT_LENGTH:
+        raise ValueError(
+            f"subject is {len(subject_bytes)} bytes, over the {_MAX_SUBJECT_LENGTH}-byte limit"
+        )
     subject_header = len(subject_bytes).to_bytes(_SUBJECT_LENGTH_SIZE, "big") + subject_bytes
     if isinstance(message, SubscriptionMessage):
         state = b"\x01" if message.subscribe else b"\x00"
@@ -313,6 +325,10 @@ class PubSubClient:
     async def close(self) -> None:
         await self._client.close()
 
+    def register_connection_error_callback(self, callback: ConnectionErrorCallback) -> None:
+        """Set the function to call when there is an error with the connection upstream."""
+        self._client.register_connection_error_callback(callback)
+
     async def subscribe(self, subject: str, callback: PublishCallback) -> None:
         """Subscribe to `subject`, calling `callback` for every matching publish.
 
@@ -321,11 +337,13 @@ class PubSubClient:
         upstream node is only told about the subscription once, for the
         first callback registered against a given subject.
         """
+        # encode first: a subject too long to send must not leave a callback registered
+        wire_message = encode_message(SubscriptionMessage(subject, subscribe=True))
         callbacks = self._subscribe_callbacks.setdefault(subject, [])
         is_first_subscription = not callbacks
         callbacks.append(callback)
         if is_first_subscription:
-            await self._client.send(encode_message(SubscriptionMessage(subject, subscribe=True)))
+            await self._client.send(wire_message)
 
     async def unsubscribe(self, subject: str, callback: PublishCallback) -> None:
         """Remove `callback` from `subject`.
