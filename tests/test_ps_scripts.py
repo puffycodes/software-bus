@@ -8,7 +8,7 @@ from software_bus._cli import parse_subject_list, ConnectFailed, ConnectionLost,
 from software_bus.base_layer import DEFAULT_HOST, DEFAULT_PORT
 from software_bus.pubsub import PubSubClient, PubSubNode, SubscriptionMessage, decode_message, encode_message
 
-from helpers import accept_one_peer_connection, free_port, open_peer_connection
+from helpers import accept_one_peer_connection, free_port, greet_as_node, open_peer_connection
 
 
 def test_parse_subject_list_splits_and_strips():
@@ -89,6 +89,7 @@ async def test_ps_server_run_listens_and_relays_subscription_upstream():
     downstream_connection = None
     try:
         upstream_peer = await asyncio.wait_for(upstream_connected, timeout=1)
+        await greet_as_node(upstream_peer)  # lets the server's cycle check accept it
         await asyncio.sleep(0.05)  # let the server task reach accept_connection
 
         downstream_connection = await open_peer_connection("127.0.0.1", listen_port)

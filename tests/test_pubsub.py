@@ -6,7 +6,12 @@ import pytest
 from software_bus import PubSubClient, PubSubNode
 from software_bus.pubsub import PublishMessage, SubscriptionMessage, decode_message, encode_message
 
-from helpers import accept_one_peer_connection, open_peer_connection
+from helpers import (
+    accept_one_peer_connection,
+    establish_to_raw_peer,
+    expect_hello,
+    open_peer_connection,
+)
 
 
 def test_encode_decode_subscription_roundtrip():
@@ -337,19 +342,17 @@ async def test_subscribe_from_upstream_propagates_to_downstream_and_other_upstre
     upstream_server_2, upstream_connected_2 = await accept_one_peer_connection()
     downstream_peer = None
     try:
-        await node.establish_connection(
-            "127.0.0.1", upstream_server_1.sockets[0].getsockname()[1]
+        upstream_peer_1 = await establish_to_raw_peer(
+            node, upstream_server_1, upstream_connected_1
         )
-        await node.establish_connection(
-            "127.0.0.1", upstream_server_2.sockets[0].getsockname()[1]
+        upstream_peer_2 = await establish_to_raw_peer(
+            node, upstream_server_2, upstream_connected_2, answering=[upstream_peer_1]
         )
-        upstream_peer_1 = await asyncio.wait_for(upstream_connected_1, timeout=1)
-        upstream_peer_2 = await asyncio.wait_for(upstream_connected_2, timeout=1)
 
         server = await node.accept_connection(port=0)
         port = server.sockets[0].getsockname()[1]
         downstream_peer = await open_peer_connection("127.0.0.1", port)
-        await asyncio.sleep(0.05)
+        await expect_hello(downstream_peer)
 
         await upstream_peer_1.send(encode_message(SubscriptionMessage("a.b", subscribe=True)))
 
@@ -854,7 +857,7 @@ async def test_node_does_not_send_publish_back_to_its_source():
     peer = None
     try:
         peer = await open_peer_connection("127.0.0.1", port)
-        await asyncio.sleep(0.05)
+        await expect_hello(peer)
         await peer.send(encode_message(SubscriptionMessage("a.b", subscribe=True)))
         await peer.send(encode_message(PublishMessage("a.b", b"mine")))
 
@@ -894,7 +897,7 @@ async def test_node_ignores_malformed_message_and_keeps_connection(caplog):
     publisher = PubSubClient()
     try:
         peer = await open_peer_connection("127.0.0.1", port)
-        await asyncio.sleep(0.05)
+        await expect_hello(peer)
 
         with caplog.at_level(logging.WARNING, logger="software_bus.pubsub"):
             await peer.send(b"\x09garbage")

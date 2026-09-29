@@ -239,8 +239,20 @@ When a subscriber unsubscribes, each node tells a neighbour to stop sending
 a subject as soon as no *other* connection on that node still wants it, so
 subscriptions between nodes are torn down once the last subscriber anywhere
 leaves. A node that joins the tree later (or any new connection) is sent the
-subjects that already have subscribers. Nodes must be connected as a tree —
-cycles are not supported.
+subjects that already have subscribers.
+
+Nodes must be connected as a tree, and they enforce it themselves: before
+`establish_connection` returns, the node checks — by asking the nodes it's
+already connected to — whether the node it just connected to can already be
+reached another way. If so, the new connection would close a cycle, so it's
+closed again and `establish_connection` raises `CycleCheckRefused` (a
+`ConnectionError`) saying why. A connection to the node itself, a second
+connection to the same node, or to a peer that isn't a `PubSubNode` is
+refused the same way. Every node in a tree has to be a version that does
+this check. See "Cycle Prevention" in
+[`docs/design/publish-subscribe.md`](docs/design/publish-subscribe.md) for the
+full rules. (Base-layer nodes don't check: a tree of `BaseLayerNode`s must
+still be kept free of cycles by hand.)
 
 A `PubSubNode` treats a failed connection (peer dropped, or a send/receive
 on it failed) as an implicit unsubscribe from every subject that connection
@@ -339,7 +351,9 @@ python -m software_bus.ps_server --upstream 10.0.0.1:8787 --listen 127.0.0.1:878
 ```
 
 It reports an unreachable upstream or unusable `--listen` address the same
-way as `bl_server`.
+way as `bl_server`. An `--upstream` connection refused by the cycle check is
+reported the same way too, with the reason, e.g.
+`error: cannot connect to 127.0.0.1:8787 (refused by the cycle check: it would create a cycle)`.
 
 `ps_subscribe` connects to a `ps_server`, subscribes to one or more
 required, comma-separated subjects (`--subject`; a subject may be a

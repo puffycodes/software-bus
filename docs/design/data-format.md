@@ -17,10 +17,15 @@ Every connection is framed the same way, regardless of what layer is on top of i
 
 The pub/sub layer defines the contents of the base layer's `payload`. Every payload starts with a 1-byte message type tag, followed by a type-specific body:
 
-| Tag    | Message      |
-|--------|--------------|
-| `0x01` | Subscription |
-| `0x02` | Publish      |
+| Tag    | Message            |
+|--------|--------------------|
+| `0x01` | Subscription       |
+| `0x02` | Publish            |
+| `0x03` | Hello              |
+| `0x04` | Reachability Query |
+| `0x05` | Reachability Reply |
+
+Tags `0x03`–`0x05` are used only between nodes, for cycle prevention (see `publish-subscribe.md`).
 
 ### Subscription Message
 
@@ -41,12 +46,46 @@ The pub/sub layer defines the contents of the base layer's `payload`. Every payl
 - `subject` is encoded the same way as in the Subscription Message.
 - `payload` is the published content: every byte after the subject, taken as-is with no further framing.
 
+### Hello Message
+
+```
+<type: 0x03><node_id: 16 bytes>
+```
+
+- `node_id` is the sending node's Node ID: 16 random bytes generated when the node is created (e.g. a random UUID).
+
+### Reachability Query Message
+
+```
+<type: 0x04><query_id: 16 bytes><target_node_id: 16 bytes>
+```
+
+- `query_id` is 16 random bytes, new for every query sent by the node that starts the check. Nodes that pass the query on keep the same `query_id`.
+- `target_node_id` is the Node ID being looked for.
+
+### Reachability Reply Message
+
+```
+<type: 0x05><query_id: 16 bytes><result: 1 byte>
+```
+
+- `query_id` is the `query_id` of the query being answered.
+- `result` is one of:
+
+| Value  | Meaning   |
+|--------|-----------|
+| `0x00` | not found |
+| `0x01` | found     |
+| `0x02` | unknown   |
+
 ### Malformed Messages
 
 A pub/sub payload is malformed if any of the following hold:
 
 - it is empty, or its type tag is not one listed above;
 - a Subscription Message's `state` is missing or is not `0x00` or `0x01`;
-- it is shorter than its `subject_length` says, or the subject is not valid UTF-8.
+- it is shorter than its `subject_length` says, or the subject is not valid UTF-8;
+- a Hello, Reachability Query or Reachability Reply Message is not exactly 17, 33 or 18 bytes long respectively (including the tag);
+- a Reachability Reply Message's `result` is not `0x00`, `0x01` or `0x02`.
 
 How a receiver handles a malformed message is defined in `publish-subscribe.md`.
