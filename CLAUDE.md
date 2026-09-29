@@ -4,7 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-There is no `python` on PATH in this environment — use `python3` explicitly.
+The interpreter name depends on the machine this shared checkout is used from:
+
+- **Linux VM:** there is no `python` on PATH — use `python3` explicitly (as in the commands below).
+- **Windows host:** `python3` is only the Microsoft Store stub ("Python was not found") — use `python`, which resolves to the `standard-dev-3.13` virtualenv (Python 3.13). Substitute `python` for `python3` in the commands below.
 
 ```
 # Install (editable install currently fails: this pyproject.toml has no setup.py,

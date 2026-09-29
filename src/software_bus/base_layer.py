@@ -40,7 +40,11 @@ class Connection:
         return await self.reader.readexactly(length)
 
     async def close(self) -> None:
-        if self.background_task is not None:
+        # don't cancel the relay loop when it is the one closing its own connection
+        if (
+            self.background_task is not None
+            and self.background_task is not asyncio.current_task()
+        ):
             self.background_task.cancel()
         if self.writer.is_closing():
             return
@@ -202,7 +206,11 @@ class BaseLayerNode:
                 if from_upstream
                 else self._downstream_connection_error_callback
             )
-            await _maybe_await(error_callback(connection, error))
+            try:
+                await _maybe_await(error_callback(connection, error))
+            finally:
+                # release the socket; otherwise the server's wait_closed() never returns
+                await connection.close()
 
     async def _default_upstream_receive_callback(
         self, source: Connection, data: bytes
@@ -248,15 +256,18 @@ class BaseLayerNode:
         """Stop accepting connections and close all tracked connections."""
         for server in self._servers.values():
             server.close()
+
+        # close connections before wait_closed(), which (Python 3.12.1+) waits
+        # for every accepted connection to be closed
+        for connection in (*self.upstream_connections, *self.downstream_connections):
+            await connection.close()
+        self.upstream_connections.clear()
+        self.downstream_connections.clear()
+
+        for server in self._servers.values():
             await server.wait_closed()
         self._servers.clear()
         self.listening_addresses.clear()
-
-        for connection in (*self.upstream_connections, *self.downstream_connections):
-            await connection.close()
-
-        self.upstream_connections.clear()
-        self.downstream_connections.clear()
 
     async def __aenter__(self) -> "BaseLayerNode":
         await self.accept_connection()
