@@ -133,7 +133,7 @@ A node that is checking therefore answers every query it receives with unknown:
 
 - Every node in a tree must implement cycle prevention. A node that does not will not reply to queries, so checks through it time out and are refused.
 - Clients take no part: they never send Hello messages, so nodes never send them queries. Clients from before this change log a Hello message as malformed and ignore it.
-- The Base Layer has no cycle prevention: a tree of Base Layer Nodes must still be kept free of cycles by whoever connects them.
+- The Base Layer has no cycle prevention: a tree of Base Layer Nodes must still be kept free of cycles by whoever connects them. The `bus_check` script (`bus-check.md`) can find cycles among the nodes running on a machine.
 
 ## Publish and Subscribe Client Class
 

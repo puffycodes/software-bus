@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from software_bus import bl_client, bl_server, ps_publish, ps_server, ps_subscribe
+from software_bus import bl_client, bl_server, bus_check, ps_publish, ps_server, ps_subscribe
 from software_bus._cli import (
     ConnectFailed,
     ConnectionLost,
@@ -42,7 +42,7 @@ def test_parse_bool_rejects_other_values(value):
         parse_bool(value)
 
 
-@pytest.mark.parametrize("script, argv", _SCRIPT_ARGV)
+@pytest.mark.parametrize("script, argv", [*_SCRIPT_ARGV, (bus_check, [])])
 def test_every_script_accepts_debug_flag_defaulting_to_false(script, argv):
     parser = script.build_arg_parser()
     assert parser.parse_args(argv).debug is False

@@ -252,7 +252,7 @@ refused the same way. Every node in a tree has to be a version that does
 this check. See "Cycle Prevention" in
 [`docs/design/publish-subscribe.md`](docs/design/publish-subscribe.md) for the
 full rules. (Base-layer nodes don't check: a tree of `BaseLayerNode`s must
-still be kept free of cycles by hand.)
+still be kept free of cycles by hand — `bus_check`, below, can find them.)
 
 A `PubSubNode` treats a failed connection (peer dropped, or a send/receive
 on it failed) as an implicit unsubscribe from every subject that connection
@@ -384,6 +384,40 @@ connect, or if the connection is lost before it has finished publishing.
 If installed (`pip install -e .`), these are also available as the
 `ps_server`, `ps_subscribe`, and `ps_publish` commands directly.
 
+### Checking for cycles: `bus_check`
+
+`bus_check` finds cycles among the `bl_server`/`ps_server` nodes running on
+this machine, from their TCP connections as the operating system reports
+them — it sends nothing over the bus. It's mainly for base-layer networks,
+which, unlike pub/sub nodes, don't refuse a connection that closes a cycle:
+
+```
+$ python -m software_bus.bus_check
+Nodes found: 3
+  pid 26932 (bl_server, 127.0.0.1:8787)
+  pid 26564 (bl_server, 127.0.0.1:8788)
+  pid 15368 (bl_server, 127.0.0.1:8789)
+Links between them: 3
+Cycles found: 1
+  pid 26932 (bl_server, 127.0.0.1:8787) - pid 15368 (bl_server, 127.0.0.1:8789) - pid 26564 (bl_server, 127.0.0.1:8788) - back to pid 26932
+```
+
+It exits with status 0 if there's no cycle, 1 if there is, and 2 if the
+check can't run. Clients are ignored (a process with one connection can't
+be part of a cycle). A program that runs a node itself, rather than through
+`bl_server`/`ps_server`, can be included with `--pid PID` (repeatable).
+Only this machine is checked: connections to other machines are counted in
+a warning but not followed. See
+[`docs/design/bus-check.md`](docs/design/bus-check.md).
+
+It needs `psutil`, an optional dependency:
+
+```
+python3 -m pip install --user -e ".[check]"   # or just: python3 -m pip install --user psutil
+```
+
+Reinstalling also adds the `bus_check` command.
+
 ## Project layout
 
 ```
@@ -398,6 +432,7 @@ src/software_bus/
     ps_server.py    ps_server CLI
     ps_subscribe.py ps_subscribe CLI
     ps_publish.py   ps_publish CLI
+    bus_check.py    bus_check CLI (finds cycles among local nodes)
     _cli.py         helpers shared by the CLI scripts
 tests/          pytest test suite
 ```
