@@ -1,6 +1,6 @@
 # Test Cases
 
-All 241 test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 243 test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 ## Subject matching (`test_subject_matcher.py`, 19 cases)
 - **Exact matcher (4 cases):** a subject matches only an identical subject. `a.b` matches `a.b` but not `a.c` or `a.b.c`, and an empty subject matches an empty subject.
@@ -59,7 +59,7 @@ All 241 test cases in `tests/`, grouped by test file and written in plain Englis
   - Closing the client does not call the connection error callback.
   - A failed send is reported to the connection error callback and also raised to the caller.
 
-## Publish/subscribe (`test_pubsub.py`, 48 cases)
+## Publish/subscribe (`test_pubsub.py`, 47 cases)
 - **Wire format (19 cases)**
   - A subscription message survives encoding and decoding unchanged.
   - A publish message with binary content survives encoding and decoding unchanged.
@@ -138,7 +138,7 @@ All 241 test cases in `tests/`, grouped by test file and written in plain Englis
   - A node that adds two links at once checks them one at a time.
   - Two nodes adding links at the same time can't close a cycle between them.
 
-## Shared script helpers (`test_cli.py`, 27 cases)
+## Shared script helpers (`test_cli.py`, 28 cases)
 - **Options and parsing**
   - `true`/`false` options accept any capitalisation (3 cases).
   - Other values like `yes`, `1` or an empty string are rejected (3 cases).
@@ -182,7 +182,7 @@ All 241 test cases in `tests/`, grouped by test file and written in plain Englis
   - The server going away raises "connection lost".
   - It stops repeating when the server goes away.
 
-## Pub/sub scripts (`test_ps_scripts.py`, 17 cases)
+## Pub/sub scripts (`test_ps_scripts.py`, 19 cases)
 - **Subject list parsing**
   - A comma-separated list is split and its whitespace trimmed.
   - An empty list is rejected.
@@ -234,7 +234,9 @@ All 241 test cases in `tests/`, grouped by test file and written in plain Englis
   - Hidden connections that no node takes part in are ignored.
 - **Report and exit status**
   - Listening addresses are filled in and the cycle is found.
-  - A node none of whose sockets can be seen gets a warning.
+  - A node whose sockets the operating system hides gets a warning.
+  - A node that simply has no sockets (started with neither `--listen` nor `--upstream`) gets no warning.
+  - Whether a node's sockets are hidden is decided by asking the operating system about that process: a refusal means hidden, while no sockets or a `--pid` that isn't running does not.
   - With everything visible, no warnings are printed.
   - The report lists the nodes and the cycle.
   - With no cycles, the report says "No cycles found."

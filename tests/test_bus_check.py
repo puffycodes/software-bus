@@ -193,13 +193,68 @@ def test_format_report_lists_nodes_and_the_cycle():
     assert "back to pid" in text
 
 
-def test_check_reports_nodes_none_of_whose_sockets_can_be_seen():
+def test_check_reports_nodes_whose_sockets_are_hidden():
     # node 2's command line is visible but its sockets aren't (another user's process)
-    nodes = {1: _node(1), 2: _node(2)}
+    nodes = {1: _node(1), 2: Node(2, "bl_server", sockets_hidden=True)}
     connections = [TcpConnection(1, ("127.0.0.1", 8001), None, listening=True)]
     report = check(nodes, connections)
     assert report.unseen == [2]
-    assert "no TCP socket of node(s) 2 can be seen" in format_report(report)
+    assert "hides the sockets of node(s) 2" in format_report(report)
+
+
+def test_check_does_not_warn_about_a_node_that_has_no_sockets():
+    # e.g. started with neither --listen nor --upstream
+    report = check({1: _node(1)}, [])
+    assert report.unseen == []
+    assert "warning" not in format_report(report)
+
+
+class _FakePsutil:
+    """Just enough of psutil for collect(): pid 2's sockets are hidden."""
+
+    class AccessDenied(Exception):
+        pass
+
+    class NoSuchProcess(Exception):
+        pass
+
+    CONN_LISTEN = "LISTEN"
+    CONN_ESTABLISHED = "ESTABLISHED"
+
+    class _Proc:
+        def __init__(self, pid, cmdline):
+            self.info = {"pid": pid, "ppid": 1, "cmdline": cmdline}
+
+    def process_iter(self, attrs):
+        return [
+            self._Proc(pid, ["python", "-m", "software_bus.bl_server"]) for pid in (2, 3)
+        ]
+
+    def Process(self, pid):
+        fake = self
+
+        class Process:
+            def net_connections(self, kind):
+                if pid == 2:
+                    raise fake.AccessDenied()
+                if pid == 99:
+                    raise fake.NoSuchProcess()
+                return []  # pid 3 simply has no sockets
+
+        return Process()
+
+    def net_connections(self, kind):
+        return []
+
+
+def test_collect_asks_the_os_whether_a_node_s_sockets_are_hidden(monkeypatch):
+    monkeypatch.setitem(sys.modules, "psutil", _FakePsutil())
+    nodes, _ = bus_check.collect(extra_pids=[99])  # 99: given with --pid, not running
+    assert {pid: node.sockets_hidden for pid, node in nodes.items()} == {
+        2: True,
+        3: False,
+        99: False,
+    }
 
 
 def test_format_report_warns_nothing_when_everything_is_seen():

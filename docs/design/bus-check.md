@@ -17,7 +17,8 @@ Nodes must be connected as a tree. Publish and Subscribe Nodes refuse a connecti
     - Connections from a node to a process that is not a node (e.g. a client) are ignored: a process with only one connection cannot be part of a cycle.
     - Connections from a node to another machine cannot be checked. Report how many there are, as a warning.
     - If the operating system hides the owning process of the other end of a node's connection (seeing it can need administrator or root rights), report how many such connections there are, as a warning: the check may be incomplete. Hidden connections that no node takes part in are ignored: they cannot be links, and on a normal machine there are many (e.g. other users' processes).
-    - If none of a node's TCP sockets can be seen (e.g. a node run by another user, whose command line is visible but whose sockets are not), report it as a warning: the check may be incomplete.
+    - If the operating system refuses to list a node's sockets (e.g. a node run by another user, whose command line is visible but whose sockets are not), report it as a warning: the check may be incomplete.
+        - Ask the operating system about each node's own sockets to decide this. A node that simply has no sockets (e.g. one started with neither --listen nor --upstream) is not hidden, and gets no warning.
 - Report every cycle among the nodes and links found.
     - Treat the links as an undirected graph with possibly several links between two nodes (the base layer floods in both directions over every connection).
     - Each link that joins two nodes already connected through other links closes one cycle; report that cycle as the list of nodes along it.

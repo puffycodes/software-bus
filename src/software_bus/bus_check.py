@@ -35,6 +35,8 @@ class Node:
     pid: int
     kind: str  # "bl_server", "ps_server", or "node" for one given with --pid
     listening: List[Address] = field(default_factory=list)
+    # the OS refused to list this process's sockets (e.g. another user's process)
+    sockets_hidden: bool = False
 
     def describe(self) -> str:
         where = ", ".join(f"{host}:{port}" for host, port in self.listening) or "not listening"
@@ -58,7 +60,7 @@ class Report:
     cycles: List[List[int]]
     unchecked_remote: int = 0  # node connections whose other end isn't on this machine
     hidden: int = 0  # node connections whose other end's owning process the OS didn't reveal
-    unseen: List[int] = field(default_factory=list)  # nodes none of whose sockets can be seen
+    unseen: List[int] = field(default_factory=list)  # nodes whose sockets the OS hides
 
 
 def _basename_stem(path: str) -> str:
@@ -214,9 +216,7 @@ def check(nodes: Dict[int, Node], connections: List[TcpConnection]) -> Report:
         if c.listening and c.pid in nodes and c.local not in nodes[c.pid].listening:
             nodes[c.pid].listening.append(c.local)
     links, unchecked_remote, hidden = find_links(connections, nodes)
-    # e.g. a node run by another user: its command line is visible, its sockets are not
-    seen_pids = {c.pid for c in connections}
-    unseen = sorted(pid for pid in nodes if pid not in seen_pids)
+    unseen = sorted(pid for pid, node in nodes.items() if node.sockets_hidden)
     return Report(
         nodes=nodes,
         links=links,
@@ -246,6 +246,8 @@ def collect(extra_pids: Sequence[int] = ()) -> Tuple[Dict[int, Node], List[TcpCo
     nodes = drop_launchers(nodes, parents)
     for pid in extra_pids:
         nodes.setdefault(pid, Node(pid, "node"))
+    for node in nodes.values():
+        node.sockets_hidden = _sockets_hidden(psutil, node.pid)
 
     try:
         raw = psutil.net_connections(kind="tcp")
@@ -270,6 +272,25 @@ def collect(extra_pids: Sequence[int] = ()) -> Tuple[Dict[int, Node], List[TcpCo
     return nodes, connections
 
 
+def _sockets_hidden(psutil, pid: int) -> bool:
+    """Whether the OS refuses to list `pid`'s sockets.
+
+    A node that simply has no sockets (e.g. started with neither --listen
+    nor --upstream) must not be mistaken for one whose sockets are hidden,
+    so ask about the process itself rather than infer it from absence.
+    """
+    try:
+        process = psutil.Process(pid)
+        # net_connections() is psutil 6+; connections() before that
+        list_sockets = getattr(process, "net_connections", None) or process.connections
+        list_sockets(kind="tcp")
+    except psutil.AccessDenied:
+        return True
+    except psutil.NoSuchProcess:
+        pass
+    return False
+
+
 def format_report(report: Report) -> str:
     lines = [f"Nodes found: {len(report.nodes)}"]
     for pid in sorted(report.nodes):
@@ -288,7 +309,8 @@ def format_report(report: Report) -> str:
     if report.unseen:
         pids = ", ".join(str(pid) for pid in report.unseen)
         lines.append(
-            f"warning: no TCP socket of node(s) {pids} can be seen (e.g. run by another user); "
+            f"warning: the operating system hides the sockets of node(s) {pids} "
+            "(e.g. run by another user); "
             "the check may be incomplete (try again as administrator/root)"
         )
     if not report.cycles:
