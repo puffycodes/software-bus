@@ -1,6 +1,8 @@
 # Test Cases
 
-All 243 test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 243 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+
+Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
 ## Subject matching (`test_subject_matcher.py`, 19 cases)
 - **Exact matcher (4 cases):** a subject matches only an identical subject. `a.b` matches `a.b` but not `a.c` or `a.b.c`, and an empty subject matches an empty subject.
@@ -247,3 +249,23 @@ All 243 test cases in `tests/`, grouped by test file and written in plain Englis
 - **With real `bl_server` processes**
   - Three servers in a tree have no cycle.
   - Three servers in a triangle have one cycle.
+
+## Manual tests
+
+These need something the automated tests can't set up, so they are run by hand. Record the date and result of the latest run with each one.
+
+### `bus_check` warns about a node connection to a hidden process
+
+Checks that a node connection whose other end belongs to a process the operating system hides is counted and reported as a warning. The automated tests cover this only with fake connections: a real one needs a process run by another user, which needs `sudo`.
+
+- **Needs:** Linux (e.g. WSL), run as a normal user who can use `sudo`, with `psutil` installed for that user.
+- **Steps**, each in its own terminal, from the repository root:
+  1. As yourself, start a node: `python3 -m software_bus.ps_server --listen 127.0.0.1:8787`
+  2. As root, connect a client to it: `sudo PYTHONPATH=src python3 -m software_bus.ps_subscribe --subject test`. (`PYTHONPATH=src` because root doesn't see your own install of the package.)
+  3. As yourself, run the check: `python3 -m software_bus.bus_check`
+- **Expected:**
+  - The `ps_server` is listed as the only node, listening on 127.0.0.1:8787.
+  - The report includes `warning: 1 node connection(s) go to a process the operating system hides; the check may be incomplete (try again as administrator/root)`. The node's own end of the connection is visible, but the subscriber's end belongs to root, so it is hidden.
+  - `No cycles found.`, and exit status 0.
+- **Clean up:** stop the subscriber and the server with Ctrl-C.
+- **Last run:** 2026-09-30, passed.
