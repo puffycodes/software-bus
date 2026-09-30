@@ -179,6 +179,7 @@ A node that is checking therefore answers every query it receives with unknown:
     - Upon receiving a publish message:
         - Using the Subject Matcher, look up **all** the subscribed subjects that match the published subject, and their corresponding list of subscription callbacks.
         - Call every callbacks using the matched (subscribed) subject, the actual (published) subject and the payload as the parameters.
+        - If a callback fails (raises an error), log the error with its details and still call the remaining callbacks. This applies to a client's own publishes too: Publish does not report a callback's failure to its caller.
 
 ## ps_server Script
 

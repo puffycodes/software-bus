@@ -141,10 +141,23 @@ def test_find_links_counts_connections_to_other_machines_and_hidden_processes():
     nodes = {1: _node(1, ("127.0.0.1", 8000))}
     connections = [
         _connection(1, 50000, 8787, remote_host="10.0.0.1"),  # other end not on this machine
-        _connection(None, 40000, 40001),  # the OS hid the owning process
+        _connection(1, 8000, 50001),  # a node connection...
+        _connection(None, 50001, 8000),  # ...whose other end's process the OS hid
     ]
     links, unchecked, hidden = find_links(connections, nodes)
     assert (links, unchecked, hidden) == ([], 1, 1)
+
+
+def test_find_links_ignores_hidden_connections_no_node_takes_part_in():
+    # e.g. another user's ssh session, as a normal user on Linux sees it
+    nodes = {1: _node(1, ("127.0.0.1", 8000)), 2: _node(2)}
+    connections = [
+        _connection(2, 50000, 8000),
+        _connection(1, 8000, 50000),
+        TcpConnection(None, ("10.0.0.5", 22), ("10.0.0.9", 50123)),
+    ]
+    links, unchecked, hidden = find_links(connections, nodes)
+    assert (len(links), unchecked, hidden) == (1, 0, 0)
 
 
 # --- report and exit status -----------------------------------------------------------
@@ -178,6 +191,21 @@ def test_format_report_lists_nodes_and_the_cycle():
     assert "pid 1 (bl_server, 127.0.0.1:8001)" in text
     assert "Cycles found: 1" in text
     assert "back to pid" in text
+
+
+def test_check_reports_nodes_none_of_whose_sockets_can_be_seen():
+    # node 2's command line is visible but its sockets aren't (another user's process)
+    nodes = {1: _node(1), 2: _node(2)}
+    connections = [TcpConnection(1, ("127.0.0.1", 8001), None, listening=True)]
+    report = check(nodes, connections)
+    assert report.unseen == [2]
+    assert "no TCP socket of node(s) 2 can be seen" in format_report(report)
+
+
+def test_format_report_warns_nothing_when_everything_is_seen():
+    nodes, connections = _triangle()
+    connections.append(TcpConnection(None, ("10.0.0.5", 22), ("10.0.0.9", 50123)))
+    assert "warning" not in format_report(check(nodes, connections))
 
 
 def test_format_report_without_cycles():

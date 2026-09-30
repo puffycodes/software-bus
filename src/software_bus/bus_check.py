@@ -56,8 +56,9 @@ class Report:
     nodes: Dict[int, Node]
     links: List[Tuple[int, int]]
     cycles: List[List[int]]
-    unchecked_remote: int = 0  # node connections to other machines (or hidden processes)
-    hidden: int = 0  # connections whose owning process the OS didn't reveal
+    unchecked_remote: int = 0  # node connections whose other end isn't on this machine
+    hidden: int = 0  # node connections whose other end's owning process the OS didn't reveal
+    unseen: List[int] = field(default_factory=list)  # nodes none of whose sockets can be seen
 
 
 def _basename_stem(path: str) -> str:
@@ -131,7 +132,9 @@ def find_links(
     Returns (links, unchecked_remote, hidden): each link is (pid, pid) and
     appears once per TCP connection; `unchecked_remote` counts node
     connections whose other end isn't on this machine (or can't be seen);
-    `hidden` counts connections the OS reported without an owning process.
+    `hidden` counts node connections whose other end the OS reported
+    without an owning process. Hidden connections that no node takes part
+    in are not counted: they can't be links.
 
     A connection only counts as a link if one end is an address a node
     listens on, as every connection made by `establish_connection` is. That
@@ -140,20 +143,23 @@ def find_links(
     """
     connections = [c for c in connections if not c.listening and c.remote is not None]
     all_ends = {(c.local, c.remote) for c in connections}
+    hidden_ends = {(c.local, c.remote) for c in connections if c.pid is None}
     node_ends: Dict[Tuple[Address, Address], int] = {
         (c.local, c.remote): c.pid for c in connections if c.pid in nodes
     }
     links = []
     unchecked_remote = 0
+    hidden = 0
     for (local, remote), pid in node_ends.items():
         other_pid = node_ends.get((remote, local))
         if other_pid is not None:
             is_bus_link = _listens_on(nodes[pid], local) or _listens_on(nodes[other_pid], remote)
             if is_bus_link and (local, remote) < (remote, local):  # count each connection once
                 links.append((pid, other_pid))
+        elif (remote, local) in hidden_ends:
+            hidden += 1
         elif (remote, local) not in all_ends:
             unchecked_remote += 1
-    hidden = sum(1 for c in connections if c.pid is None)
     return links, unchecked_remote, hidden
 
 
@@ -208,12 +214,16 @@ def check(nodes: Dict[int, Node], connections: List[TcpConnection]) -> Report:
         if c.listening and c.pid in nodes and c.local not in nodes[c.pid].listening:
             nodes[c.pid].listening.append(c.local)
     links, unchecked_remote, hidden = find_links(connections, nodes)
+    # e.g. a node run by another user: its command line is visible, its sockets are not
+    seen_pids = {c.pid for c in connections}
+    unseen = sorted(pid for pid in nodes if pid not in seen_pids)
     return Report(
         nodes=nodes,
         links=links,
         cycles=find_cycles(nodes, links),
         unchecked_remote=unchecked_remote,
         hidden=hidden,
+        unseen=unseen,
     )
 
 
@@ -272,7 +282,13 @@ def format_report(report: Report) -> str:
         )
     if report.hidden:
         lines.append(
-            f"warning: the owning process of {report.hidden} connection(s) is hidden; "
+            f"warning: {report.hidden} node connection(s) go to a process the operating system "
+            "hides; the check may be incomplete (try again as administrator/root)"
+        )
+    if report.unseen:
+        pids = ", ".join(str(pid) for pid in report.unseen)
+        lines.append(
+            f"warning: no TCP socket of node(s) {pids} can be seen (e.g. run by another user); "
             "the check may be incomplete (try again as administrator/root)"
         )
     if not report.cycles:

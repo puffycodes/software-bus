@@ -995,3 +995,36 @@ async def test_client_connection_error_callback_called_when_node_goes_away():
     finally:
         await client.close()
         await node.close()
+
+
+@pytest.mark.asyncio
+async def test_failing_subscription_callback_does_not_stop_the_others(caplog):
+    node, port = await _start_node()
+    subscriber = PubSubClient()
+    publisher = PubSubClient()
+    received = []
+
+    def failing(matched, actual, payload):
+        raise ValueError("bad subscriber")
+
+    try:
+        await subscriber.connect("127.0.0.1", port)
+        await publisher.connect("127.0.0.1", port)
+        await subscriber.subscribe("a.b", failing)
+        await subscriber.subscribe("a.b", lambda m, a, payload: received.append(payload))
+        await asyncio.sleep(0.1)
+
+        with caplog.at_level(logging.ERROR, logger="software_bus.pubsub"):
+            await publisher.publish("a.b", b"one")
+            await asyncio.sleep(0.1)
+            await publisher.publish("a.b", b"two")
+            await asyncio.sleep(0.1)
+            # delivered locally too, without raising into the publisher
+            await subscriber.publish("a.b", b"own")
+
+        assert received == [b"one", b"two", b"own"]
+        assert "bad subscriber" in caplog.text
+    finally:
+        await subscriber.close()
+        await publisher.close()
+        await node.close()

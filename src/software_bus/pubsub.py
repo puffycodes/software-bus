@@ -769,9 +769,17 @@ class PubSubClient:
         for subscribed_subject, callbacks in list(self._subscribe_callbacks.items()):
             if self._matcher.match(message.subject, subscribed_subject):
                 for callback in list(callbacks):
-                    await _maybe_await(
-                        callback(subscribed_subject, message.subject, message.payload)
-                    )
+                    try:
+                        await _maybe_await(
+                            callback(subscribed_subject, message.subject, message.payload)
+                        )
+                    except Exception:
+                        # one failing subscriber mustn't keep the others from the publish
+                        logger.exception(
+                            "Subscription callback for %r failed on a publish to %r",
+                            subscribed_subject,
+                            message.subject,
+                        )
 
     async def __aenter__(self) -> "PubSubClient":
         return self

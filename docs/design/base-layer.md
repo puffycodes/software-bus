@@ -21,6 +21,7 @@ Functionalities
 - **Action Upon Receiving of Data** Action depends on the connection that the data is received from.
     - If the data is received from an upstream connections, call the upstream receive callback function with the data as a parameter.
     - If the data is received from a downstream connections, call the downstream receive callback function with the data as a parameter.
+    - If the callback fails (raises an error), log the error with its details and carry on with the next data. The connection is kept, and this is not a connection error.
 
 - **Register Upstream Connection Error Callback** Provide a function to call when there is error with an upstream connection.
     - A default upstream connection error callback will be registered during instantiation.
@@ -67,6 +68,7 @@ Functionalities
 - **Register Receive Callback** Provide a function to call when data are received.
     - Default is None, meaning not to call any function.
 - **Action Upon Receiving of Data** Call the given function, if any, with the data as one of the parameters.
+    - If the function fails (raises an error), log the error with its details and carry on with the next data. The connection is kept, and this is not a connection error.
 - **Register Connection Error Callback** Provide a function to call when there is error with the connection.
     - A default connection error callback will be registered during instantiation.
         - Print a message to indicate that the connection has error, with the necessary details.

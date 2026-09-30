@@ -93,8 +93,13 @@ class BaseLayerClient:
         logger.info("The connection has error: %s (%s)", connection.address, error)
 
     async def _on_data_received(self, data: bytes) -> None:
-        if self._receive_callback is not None:
+        if self._receive_callback is None:
+            return
+        try:
             await _maybe_await(self._receive_callback(data))
+        except Exception:
+            # a failing callback costs that one message, not the connection
+            logger.exception("Receive callback failed")
 
     async def close(self) -> None:
         if self.connection is not None:

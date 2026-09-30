@@ -258,3 +258,41 @@ async def test_client_send_failure_reported_to_callback_and_raised():
     finally:
         await client.close()
         await hub.close()
+
+
+@pytest.mark.asyncio
+async def test_client_failing_receive_callback_costs_only_that_message(caplog):
+    hub = BaseLayerNode()
+    sender = BaseLayerClient()
+    receiver = BaseLayerClient()
+    received = []
+    errors = []
+
+    def callback(data):
+        received.append(data)
+        if data == b"first":
+            raise ValueError("bad callback")
+
+    try:
+        server = await hub.accept_connection(port=0)
+        bound_port = server.sockets[0].getsockname()[1]
+        await sender.connect("127.0.0.1", bound_port)
+        await receiver.connect("127.0.0.1", bound_port)
+        receiver.register_receive_callback(callback)
+        receiver.register_connection_error_callback(lambda c, e: errors.append(e))
+        await asyncio.sleep(0.05)
+
+        with caplog.at_level(logging.ERROR, logger="software_bus.client"):
+            await sender.send(b"first")
+            await asyncio.sleep(0.05)
+            await sender.send(b"second")
+            await asyncio.sleep(0.1)
+
+        assert received == [b"first", b"second"]
+        assert errors == []
+        assert receiver.connection is not None
+        assert "bad callback" in caplog.text
+    finally:
+        await sender.close()
+        await receiver.close()
+        await hub.close()

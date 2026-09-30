@@ -215,7 +215,11 @@ class BaseLayerNode:
         try:
             while True:
                 data = await source.receive()
-                await _maybe_await(callback(source, data))
+                try:
+                    await _maybe_await(callback(source, data))
+                except Exception:
+                    # a failing callback costs that one message, not the connection
+                    logger.exception("Receive callback failed on data from %s", source.address)
         except (asyncio.IncompleteReadError, OSError) as exc:
             error = exc
         except asyncio.CancelledError:

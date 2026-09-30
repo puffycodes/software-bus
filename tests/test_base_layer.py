@@ -477,3 +477,34 @@ async def test_new_connection_callbacks_called_for_upstream_and_downstream():
     finally:
         await upstream_layer.close()
         await downstream_layer.close()
+
+
+@pytest.mark.asyncio
+async def test_failing_receive_callback_costs_only_that_message(caplog):
+    hub = BaseLayerNode()
+    server = await hub.accept_connection(port=0)
+    bound_port = server.sockets[0].getsockname()[1]
+    received = []
+    errors = []
+
+    def callback(source, data):
+        received.append(data)
+        if data == b"first":
+            raise ValueError("bad callback")
+
+    hub.register_downstream_receive_callback(callback)
+    hub.register_downstream_connection_error_callback(lambda c, e: errors.append(e))
+    peer = await open_peer_connection("127.0.0.1", bound_port)
+    try:
+        with caplog.at_level(logging.ERROR, logger="software_bus.base_layer"):
+            await peer.send(b"first")
+            await peer.send(b"second")
+            await asyncio.sleep(0.1)
+
+        assert received == [b"first", b"second"]
+        assert errors == []
+        assert len(hub.downstream_connections) == 1
+        assert "bad callback" in caplog.text
+    finally:
+        await peer.close()
+        await hub.close()
