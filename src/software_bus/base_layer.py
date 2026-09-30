@@ -211,14 +211,18 @@ class BaseLayerNode:
             else self._downstream_receive_callback
         )
         error: Optional[BaseException] = None
+        cancelled = False
         try:
             while True:
                 data = await source.receive()
                 await _maybe_await(callback(source, data))
-        except (asyncio.IncompleteReadError, OSError, asyncio.CancelledError) as exc:
+        except (asyncio.IncompleteReadError, OSError) as exc:
             error = exc
+        except asyncio.CancelledError:
+            cancelled = True  # the connection is being closed on purpose: not an error
         finally:
-            await self._handle_connection_error(source, from_upstream, error)
+            if not cancelled:
+                await self._handle_connection_error(source, from_upstream, error)
 
     async def _handle_connection_error(
         self, connection: Connection, from_upstream: bool, error: Optional[BaseException]

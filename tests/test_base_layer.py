@@ -98,6 +98,34 @@ async def test_close_clears_connection_lists_and_addresses():
 
     assert upstream_layer.upstream_connections == []
     assert downstream_layer.downstream_connections == []
+
+
+@pytest.mark.asyncio
+async def test_close_does_not_report_own_connections_as_errors():
+    downstream_layer = BaseLayerNode()
+    server = await downstream_layer.accept_connection(port=0)
+    bound_port = server.sockets[0].getsockname()[1]
+
+    upstream_layer = BaseLayerNode()
+    await upstream_layer.establish_connection("127.0.0.1", bound_port)
+    await asyncio.sleep(0.05)
+
+    closer_errors = []
+    peer_errors = []
+    upstream_layer.register_upstream_connection_error_callback(
+        lambda connection, error: closer_errors.append(error)
+    )
+    downstream_layer.register_downstream_connection_error_callback(
+        lambda connection, error: peer_errors.append(error)
+    )
+    try:
+        await upstream_layer.close()
+        await asyncio.sleep(0.05)
+
+        assert closer_errors == []  # closing on purpose is not an error...
+        assert len(peer_errors) == 1  # ...but the peer does see its connection dropped
+    finally:
+        await downstream_layer.close()
     assert downstream_layer.listening_addresses == []
 
 

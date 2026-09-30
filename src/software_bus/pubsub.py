@@ -339,7 +339,12 @@ class PubSubNode:
     async def close(self) -> None:
         for task in list(self._query_tasks):
             task.cancel()
+        connections = [*self.upstream_connections, *self.downstream_connections]
         await self._base.close()
+        # closing reports no connection errors, so end any cycle check still
+        # running here: establish_connection then fails instead of timing out
+        for connection in connections:
+            self._forget_connection(connection)
         self._downstream_subscriptions.clear()
         self._upstream_subscriptions.clear()
         self._peer_node_ids.clear()

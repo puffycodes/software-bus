@@ -6,6 +6,7 @@ Looks at the nodes' TCP connections as the operating system reports them
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 from collections import defaultdict, deque
@@ -13,6 +14,8 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from ._cli import add_debug_argument, configure_logging
+
+logger = logging.getLogger(__name__)
 
 Address = Tuple[str, int]
 
@@ -90,6 +93,23 @@ def node_kind(cmdline: Sequence[str]) -> Optional[str]:
     if script is not None and _basename_stem(script) in _NODE_KINDS:
         return _basename_stem(script)
     return None
+
+
+def drop_launchers(nodes: Dict[int, Node], parents: Dict[int, int]) -> Dict[int, Node]:
+    """`nodes` without the launcher processes of other nodes.
+
+    On Windows the installed `bl_server.exe` / `ps_server.exe` is a launcher
+    that runs the script in a child `python.exe`, and both processes look
+    like the same node. `parents` maps a pid to its parent pid; a node whose
+    child is a node of the same kind is taken to be that child's launcher.
+    """
+    launchers = set()
+    for pid, node in nodes.items():
+        parent = nodes.get(parents.get(pid))
+        if parent is not None and parent.kind == node.kind:
+            logger.info("pid %s is the launcher of node pid %s, not a node", parent.pid, pid)
+            launchers.add(parent.pid)
+    return {pid: node for pid, node in nodes.items() if pid not in launchers}
 
 
 _WILDCARD_HOSTS = ("0.0.0.0", "::", "")
@@ -207,10 +227,13 @@ def collect(extra_pids: Sequence[int] = ()) -> Tuple[Dict[int, Node], List[TcpCo
         ) from None
 
     nodes: Dict[int, Node] = {}
-    for proc in psutil.process_iter(["pid", "cmdline"]):
+    parents: Dict[int, int] = {}
+    for proc in psutil.process_iter(["pid", "ppid", "cmdline"]):
         kind = node_kind(proc.info.get("cmdline") or [])
         if kind is not None:
             nodes[proc.info["pid"]] = Node(proc.info["pid"], kind)
+            parents[proc.info["pid"]] = proc.info["ppid"]
+    nodes = drop_launchers(nodes, parents)
     for pid in extra_pids:
         nodes.setdefault(pid, Node(pid, "node"))
 
@@ -233,6 +256,7 @@ def collect(extra_pids: Sequence[int] = ()) -> Tuple[Dict[int, Node], List[TcpCo
                 listening=listening,
             )
         )
+    logger.info("Found %d node(s) and %d TCP socket(s)", len(nodes), len(connections))
     return nodes, connections
 
 

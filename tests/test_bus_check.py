@@ -12,6 +12,7 @@ from software_bus.bus_check import (
     Node,
     TcpConnection,
     check,
+    drop_launchers,
     find_cycles,
     find_links,
     format_report,
@@ -42,6 +43,23 @@ from helpers import free_port
 )
 def test_node_kind(cmdline, kind):
     assert node_kind(cmdline) == kind
+
+
+def test_drop_launchers_keeps_only_the_python_child_of_a_windows_launcher():
+    # bl_server.exe (pid 10) runs `python.exe ...l_server.exe` (pid 11)
+    nodes = {10: Node(10, "bl_server"), 11: Node(11, "bl_server"), 20: Node(20, "ps_server")}
+    parents = {10: 1, 11: 10, 20: 1}
+    assert sorted(drop_launchers(nodes, parents)) == [11, 20]
+
+
+def test_drop_launchers_keeps_a_node_started_by_a_node_of_another_kind():
+    nodes = {10: Node(10, "bl_server"), 11: Node(11, "ps_server")}
+    assert sorted(drop_launchers(nodes, {10: 1, 11: 10})) == [10, 11]
+
+
+def test_drop_launchers_without_parents_keeps_every_node():
+    nodes = {10: Node(10, "bl_server"), 11: Node(11, "bl_server")}
+    assert sorted(drop_launchers(nodes, {})) == [10, 11]
 
 
 # --- finding cycles --------------------------------------------------------------

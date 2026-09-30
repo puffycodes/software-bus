@@ -268,6 +268,27 @@ async def test_messages_from_a_pending_connection_are_held_until_it_is_accepted(
 
 
 @pytest.mark.asyncio
+async def test_closing_the_node_ends_a_check_still_waiting_for_hello():
+    server, connected = await accept_one_peer_connection()
+    node = PubSubNode()
+    try:
+        task = asyncio.ensure_future(
+            node.establish_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        )
+        peer = await asyncio.wait_for(connected, timeout=1)
+        await expect_hello(peer)  # never answered: the check waits for a Hello
+
+        await node.close()
+        with pytest.raises(ConnectionError):
+            await asyncio.wait_for(task, timeout=1)  # well before check_timeout
+        assert node._pending == {}
+    finally:
+        await node.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
 async def test_nothing_is_sent_on_a_pending_connection_until_it_is_accepted():
     node, port = await _start_node()
     server, connected = await accept_one_peer_connection()

@@ -73,6 +73,8 @@
     - When error occurs on a connection, remove the connection from every subject, applying the unsubscribe rules above for each subject as if the connection had sent an unsubscribe message.
     - When error occurs on a pending connection, the cycle check for it ends, and Establish Connection reports the error to its caller.
 - **Close** Close the Base Layer Node (which stops accepting connections and closes every connection), stop answering any reachability queries still in progress, and forget every subscription.
+    - A cycle check still running ends as if its connection had failed, so Establish Connection reports an error to its caller straight away.
+    - Closing the node is not an error on its connections, so it sends no unsubscribe messages (see Exception Handling).
 
 ## Cycle Prevention
 
@@ -92,8 +94,8 @@ When node A establishes a connection to node B:
     - **not found:** accept the connection.
     - **unknown**, or the check timeout passes before the result is known: wait a random delay between 0.2 and 2 seconds, then repeat this step with a new query ID. Give up after 5 attempts in all, and refuse the connection: whether it would create a cycle could not be determined.
 6. When the connection is accepted, it becomes active:
-    - Process the subscription and publish messages kept from it, in the order received.
-    - Send it a subscription message for every subject that currently has subscribers (see New Connection).
+    - First send it a subscription message for every subject that currently has subscribers (see New Connection), as for an accepted connection.
+    - Then process the subscription and publish messages kept from it, in the order received.
 7. When the connection is refused: close it, log the reason, and report it to the caller of Establish Connection.
 
 A node checks one new connection at a time. If it establishes another connection while a check is still running, the new connection stays pending, and its check starts once the earlier one has finished. (Two connections checked at the same time by one node could each pass their check and still form a cycle together.)

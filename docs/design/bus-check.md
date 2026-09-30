@@ -11,7 +11,9 @@ Nodes must be connected as a tree. Publish and Subscribe Nodes refuse a connecti
 - Find the nodes running on this machine.
     - A node is a process running `bl_server` or `ps_server`, whether started as `python -m software_bus.bl_server` (or `ps_server`) or as the installed `bl_server` / `ps_server` command.
     - parameter --pid PID (may be repeated; default: None) also treats the process PID as a node, e.g. a program that uses a Base Layer Node or a Publish and Subscribe Node itself.
-- Find the links between those nodes: every established TCP connection whose two ends both belong to nodes on this machine.
+    - On Windows the installed `bl_server` / `ps_server` command is a launcher that runs the script in a child Python process, so both processes look like the same node. A process whose child is a node of the same kind is taken to be that child's launcher, and is not a node itself.
+- Find the links between those nodes: every established TCP connection whose two ends both belong to nodes on this machine, and one of whose ends is an address a node listens on.
+    - Every connection a node establishes goes to an address another node listens on. Requiring it leaves out connections a process makes to itself for its own use, which are not links (asyncio on Windows keeps one open in every process).
     - Connections from a node to a process that is not a node (e.g. a client) are ignored: a process with only one connection cannot be part of a cycle.
     - Connections from a node to another machine cannot be checked. Report how many there are, as a warning.
     - If the operating system hides some connections' owning processes (this can need administrator or root rights), report it as a warning: the check may be incomplete.

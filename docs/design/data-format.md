@@ -36,6 +36,7 @@ Tags `0x03`–`0x05` are used only between nodes, for cycle prevention (see `pub
 - `state` is `0x01` to subscribe, `0x00` to unsubscribe.
 - `subject` is the subject string, UTF-8 encoded, preceded by its length as an unsigned 2-byte big-endian integer.
     - A subject can therefore be at most 65535 bytes once UTF-8 encoded. An encoder must reject a longer subject with an error, rather than truncating it or producing a malformed message.
+- An encoder sends nothing after the subject. A decoder ignores any bytes after it.
 
 ### Publish Message
 
