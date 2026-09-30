@@ -46,6 +46,9 @@ On Windows, `python3` is often only a Microsoft Store placeholder, so use
 python3 -m pytest -v
 ```
 
+[`docs/test-cases.md`](docs/test-cases.md) describes every test in plain
+English, including the manual tests that have to be run by hand.
+
 Without installing, you can run code and tests with `src/` on the path
 instead:
 
@@ -91,14 +94,18 @@ hub.register_downstream_receive_callback(
 )
 ```
 
+If a receive callback raises an exception, the node logs it with its
+traceback and carries on with the next message: the connection is kept, and
+this doesn't count as a connection error.
+
 When a connection drops, or a send/receive on it fails, it's removed from
 `upstream_connections`/`downstream_connections` and an upstream or
 downstream connection error callback is called with the `Connection` and
 the exception — e.g. `asyncio.IncompleteReadError` when the peer closed the
-connection, or `asyncio.CancelledError` when this node is being closed. Once
-the callback returns, the connection is closed, so don't keep it around to
-send on. The default callbacks just log
-the event; override them with `register_upstream_connection_error_callback`
+connection. Once the callback returns, the connection is closed, so don't
+keep it around to send on. Closing the node yourself with `close()` doesn't
+call these callbacks (the peers at the other end do see their connections
+drop). The default callbacks just log the event; override them with `register_upstream_connection_error_callback`
 / `register_downstream_connection_error_callback` to react instead:
 
 ```python
@@ -175,6 +182,10 @@ client.register_connection_error_callback(
 
 Closing the client yourself with `close()` doesn't call the callback.
 
+As on a node, an exception raised by the receive callback is logged and
+costs only that one message: the client stays connected and keeps
+receiving.
+
 ### `PubSubNode` and `PubSubClient` — publish/subscribe
 
 A publish/subscribe layer built on top of `BaseLayerNode`/`BaseLayerClient`.
@@ -244,6 +255,10 @@ A client that is subscribed to a subject it publishes to receives its own
 publish: `publish()` calls the client's matching callbacks directly, since a
 node never sends a publish back to the connection it came from.
 
+If a subscription callback raises an exception, it's logged and the other
+matching callbacks are still called. That includes the client's own
+publishes: `publish()` doesn't pass a callback's exception on to its caller.
+
 When a subscriber unsubscribes, each node tells a neighbour to stop sending
 a subject as soon as no *other* connection on that node still wants it, so
 subscriptions between nodes are torn down once the last subscriber anywhere
@@ -260,7 +275,8 @@ connection to the same node, or to a peer that isn't a `PubSubNode` is
 refused the same way. Every node in a tree has to be a version that does
 this check. See "Cycle Prevention" in
 [`docs/design/publish-subscribe.md`](docs/design/publish-subscribe.md) for the
-full rules. (Base-layer nodes don't check: a tree of `BaseLayerNode`s must
+full rules. Closing a node while `establish_connection` is still checking
+makes it raise straight away. (Base-layer nodes don't check: a tree of `BaseLayerNode`s must
 still be kept free of cycles by hand — `bus_check`, below, can find them.)
 
 A `PubSubNode` treats a failed connection (peer dropped, or a send/receive
@@ -423,7 +439,12 @@ check can't run. Clients are ignored (a process with one connection can't
 be part of a cycle). A program that runs a node itself, rather than through
 `bl_server`/`ps_server`, can be included with `--pid PID` (repeatable).
 Only this machine is checked: connections to other machines are counted in
-a warning but not followed. See
+a warning but not followed.
+
+It also warns when the operating system hides something the check needs: a
+node connection whose other end belongs to a process you can't see, or a
+node whose sockets you can't see at all (e.g. a node run by another user on
+Linux). Run it as administrator/root to see everything. See
 [`docs/design/bus-check.md`](docs/design/bus-check.md).
 
 It needs `psutil`, an optional dependency:
@@ -438,6 +459,7 @@ Reinstalling also adds the `bus_check` command.
 
 ```
 docs/design/    design docs
+docs/test-cases.md  every test, in plain English (plus manual tests)
 src/software_bus/
     base_layer.py   BaseLayerNode, Connection
     client.py       BaseLayerClient
