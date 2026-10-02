@@ -48,6 +48,8 @@ python3 -m pytest -v
 
 [`docs/test-cases.md`](docs/test-cases.md) describes every test in plain
 English, including the manual tests that have to be run by hand.
+[`docs/development-approach.md`](docs/development-approach.md) describes
+how the project is developed and tested.
 
 Without installing, you can run code and tests with `src/` on the path
 instead:
