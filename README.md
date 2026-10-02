@@ -49,7 +49,9 @@ python3 -m pytest -v
 [`docs/test-cases.md`](docs/test-cases.md) describes every test in plain
 English, including the manual tests that have to be run by hand.
 [`docs/development-approach.md`](docs/development-approach.md) describes
-how the project is developed and tested.
+how the project is developed and tested, and
+[`docs/development-guideline.md`](docs/development-guideline.md) is a
+condensed, project-neutral version of it for reuse in other projects.
 
 Without installing, you can run code and tests with `src/` on the path
 instead:
@@ -462,6 +464,8 @@ Reinstalling also adds the `bus_check` command.
 ```
 docs/design/    design docs
 docs/test-cases.md  every test, in plain English (plus manual tests)
+docs/development-approach.md   how this project is developed and tested
+docs/development-guideline.md  the same, condensed and project-neutral
 src/software_bus/
     base_layer.py   BaseLayerNode, Connection
     client.py       BaseLayerClient

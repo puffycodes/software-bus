@@ -1,6 +1,6 @@
 # Development and Testing Approach
 
-How this project is developed and tested. For the commands to install and run things, see [`README.md`](../README.md); for the architecture, see [`CLAUDE.md`](../CLAUDE.md) and the specs in [`design/`](design/).
+How this project is developed and tested. For the commands to install and run things, see [`README.md`](../README.md); for the architecture, see [`CLAUDE.md`](../CLAUDE.md) and the specs in [`design/`](design/). A condensed, project-neutral version of this document, for reuse in other projects, is [`development-guideline.md`](development-guideline.md).
 
 ## Development approach
 
