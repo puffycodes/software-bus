@@ -1,10 +1,19 @@
 import asyncio
 import logging
+import uuid
 
 import pytest
 
 from software_bus import PubSubClient, PubSubNode
-from software_bus.pubsub import PublishMessage, SubscriptionMessage, decode_message, encode_message
+from software_bus.pubsub import (
+    PublishMessage,
+    ReachabilityQueryMessage,
+    ReachabilityReplyMessage,
+    ReachabilityResult,
+    SubscriptionMessage,
+    decode_message,
+    encode_message,
+)
 
 from helpers import (
     accept_one_peer_connection,
@@ -12,6 +21,20 @@ from helpers import (
     expect_hello,
     open_peer_connection,
 )
+
+
+def test_subscription_and_publish_wire_layout():
+    assert encode_message(SubscriptionMessage("a.b", subscribe=True)) == b"\x01\x01\x00\x03a.b"
+    assert encode_message(SubscriptionMessage("a.b", subscribe=False)) == b"\x01\x00\x00\x03a.b"
+    assert encode_message(SubscriptionMessage("é", subscribe=True)) == b"\x01\x01\x00\x02\xc3\xa9"
+    assert encode_message(PublishMessage("a.b", b"\x00hi")) == b"\x02\x00\x03a.b\x00hi"
+    assert decode_message(b"\x02\x00\x03a.b\x00hi") == PublishMessage("a.b", b"\x00hi")
+
+
+def test_decode_ignores_bytes_after_a_subscription_subject():
+    assert decode_message(b"\x01\x01\x00\x03a.bextra") == SubscriptionMessage(
+        "a.b", subscribe=True
+    )
 
 
 def test_encode_decode_subscription_roundtrip():
@@ -1028,3 +1051,115 @@ async def test_failing_subscription_callback_does_not_stop_the_others(caplog):
         await subscriber.close()
         await publisher.close()
         await node.close()
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_for_a_subject_never_subscribed_sends_nothing():
+    # without this, two nodes could bounce redundant unsubscribes back and forth
+    node, port = await _start_node()
+    peer_a = await open_peer_connection("127.0.0.1", port)
+    peer_b = await open_peer_connection("127.0.0.1", port)
+    try:
+        await expect_hello(peer_a)
+        await expect_hello(peer_b)
+        await asyncio.sleep(0.05)
+
+        await peer_a.send(encode_message(SubscriptionMessage("a.b", subscribe=False)))
+
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(peer_b.receive(), timeout=0.2)
+        assert node._downstream_subscriptions == {}
+    finally:
+        await peer_a.close()
+        await peer_b.close()
+        await node.close()
+
+
+@pytest.mark.asyncio
+async def test_closing_a_node_sends_no_unsubscribes_and_forgets_subscriptions():
+    node, port = await _start_node()
+    server, connected = await accept_one_peer_connection()
+    subscriber = PubSubClient()
+    try:
+        upstream_peer = await establish_to_raw_peer(node, server, connected)
+        await subscriber.connect("127.0.0.1", port)
+        await subscriber.subscribe("a.b", lambda m, a, p: None)
+        message = decode_message(await asyncio.wait_for(upstream_peer.receive(), timeout=1))
+        assert message == SubscriptionMessage("a.b", subscribe=True)
+
+        await node.close()
+
+        # the connection just ends: no unsubscribe arrives first
+        with pytest.raises(asyncio.IncompleteReadError):
+            await asyncio.wait_for(upstream_peer.receive(), timeout=1)
+        assert node._downstream_subscriptions == {}
+        assert node._upstream_subscriptions == {}
+    finally:
+        await subscriber.close()
+        await node.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_client_logs_and_ignores_reachability_messages(caplog):
+    server, connected = await accept_one_peer_connection()
+    client = PubSubClient()
+    received = []
+    try:
+        await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+        peer = await asyncio.wait_for(connected, timeout=1)
+        await client.subscribe("a.b", lambda m, a, payload: received.append(payload))
+        await asyncio.wait_for(peer.receive(), timeout=1)  # the subscribe message
+
+        query_id = uuid.uuid4().bytes
+        with caplog.at_level(logging.INFO, logger="software_bus.pubsub"):
+            await peer.send(encode_message(ReachabilityQueryMessage(query_id, uuid.uuid4().bytes)))
+            await peer.send(
+                encode_message(ReachabilityReplyMessage(query_id, ReachabilityResult.FOUND))
+            )
+            await peer.send(encode_message(PublishMessage("a.b", b"after")))
+            await asyncio.sleep(0.1)
+
+        assert received == [b"after"]  # still connected and receiving
+        messages = [record.getMessage() for record in caplog.records]
+        assert sum("only nodes take part" in m for m in messages) == 2
+        assert not any("malformed" in m for m in messages)
+        # nothing is sent back in reply
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(peer.receive(), timeout=0.1)
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_client_unsubscribe_of_unknown_subject_or_callback_changes_nothing():
+    server, connected = await accept_one_peer_connection()
+    client = PubSubClient()
+    received = []
+
+    def registered(matched, actual, payload):
+        received.append(payload)
+
+    def never_registered(matched, actual, payload):
+        pass
+
+    try:
+        await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+        peer = await asyncio.wait_for(connected, timeout=1)
+        await client.subscribe("a.b", registered)
+        await asyncio.wait_for(peer.receive(), timeout=1)  # the subscribe message
+
+        await client.unsubscribe("x.y", registered)  # subject never subscribed
+        await client.unsubscribe("a.b", never_registered)  # callback never registered
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(peer.receive(), timeout=0.1)
+
+        await client.publish("a.b", b"still-subscribed")
+        assert received == [b"still-subscribed"]
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()

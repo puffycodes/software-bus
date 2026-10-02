@@ -508,3 +508,154 @@ async def test_failing_receive_callback_costs_only_that_message(caplog):
     finally:
         await peer.close()
         await hub.close()
+
+
+# --- framing (docs/design/data-format.md, "Base Layer Wire Format") -------------
+
+
+@pytest.mark.asyncio
+async def test_frame_is_a_four_byte_big_endian_length_then_the_payload():
+    server, connected = await _accept_one_peer_connection()
+    reader, writer = await asyncio.open_connection(
+        "127.0.0.1", server.sockets[0].getsockname()[1]
+    )
+    try:
+        peer = await asyncio.wait_for(connected, timeout=1)
+
+        await peer.send(b"abc")
+        assert await asyncio.wait_for(reader.readexactly(7), timeout=1) == b"\x00\x00\x00\x03abc"
+
+        await peer.send(b"")
+        assert await asyncio.wait_for(reader.readexactly(4), timeout=1) == b"\x00\x00\x00\x00"
+    finally:
+        writer.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_frames_keep_their_boundaries_however_tcp_delivers_them():
+    server, connected = await _accept_one_peer_connection()
+    reader, writer = await asyncio.open_connection(
+        "127.0.0.1", server.sockets[0].getsockname()[1]
+    )
+    try:
+        peer = await asyncio.wait_for(connected, timeout=1)
+
+        # three frames, one of them empty, in a single write...
+        writer.write(b"\x00\x00\x00\x02hi" + b"\x00\x00\x00\x00" + b"\x00\x00\x00\x03xyz")
+        # ...then one frame split in the middle of its length prefix and its payload
+        writer.write(b"\x00\x00")
+        await writer.drain()
+        await asyncio.sleep(0.05)
+        writer.write(b"\x00\x05he")
+        await writer.drain()
+        await asyncio.sleep(0.05)
+        writer.write(b"llo")
+        await writer.drain()
+
+        received = [await asyncio.wait_for(peer.receive(), timeout=1) for _ in range(4)]
+        assert received == [b"hi", b"", b"xyz", b"hello"]
+    finally:
+        writer.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_large_payload_is_relayed_intact():
+    hub = BaseLayerNode()
+    peer_a = peer_b = None
+    try:
+        server = await hub.accept_connection(port=0)
+        hub_port = server.sockets[0].getsockname()[1]
+        peer_a = await _open_peer_connection("127.0.0.1", hub_port)
+        peer_b = await _open_peer_connection("127.0.0.1", hub_port)
+        await asyncio.sleep(0.05)
+
+        payload = bytes(range(256)) * 8192  # 2 MiB: many TCP reads
+        await peer_a.send(payload)
+
+        assert await asyncio.wait_for(peer_b.receive(), timeout=5) == payload
+    finally:
+        await hub.close()
+        if peer_a is not None:
+            await peer_a.close()
+        if peer_b is not None:
+            await peer_b.close()
+
+
+# --- more callbacks and closing ---------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_receive_callback_can_be_async():
+    hub = BaseLayerNode()
+    received = []
+
+    async def async_callback(source, data):
+        await asyncio.sleep(0)
+        received.append(data)
+
+    hub.register_downstream_receive_callback(async_callback)
+    peer = None
+    try:
+        server = await hub.accept_connection(port=0)
+        peer = await _open_peer_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        await asyncio.sleep(0.05)
+
+        await peer.send(b"hello")
+        await asyncio.sleep(0.05)
+
+        assert received == [b"hello"]
+    finally:
+        await hub.close()
+        if peer is not None:
+            await peer.close()
+
+
+@pytest.mark.asyncio
+async def test_downstream_connection_error_callback_supports_async_callback():
+    hub = BaseLayerNode()
+    errors = []
+
+    async def async_callback(connection, error):
+        errors.append(connection)
+
+    hub.register_downstream_connection_error_callback(async_callback)
+    try:
+        server = await hub.accept_connection(port=0)
+        peer = await _open_peer_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        await asyncio.sleep(0.05)
+        connection = hub.downstream_connections[0]
+
+        await peer.close()
+        await asyncio.sleep(0.1)
+
+        assert errors == [connection]
+    finally:
+        await hub.close()
+
+
+@pytest.mark.asyncio
+async def test_closing_a_node_twice_is_harmless():
+    hub = BaseLayerNode()
+    server = await hub.accept_connection(port=0)
+    peer = await _open_peer_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+    try:
+        await asyncio.sleep(0.05)
+
+        await hub.close()
+        await asyncio.wait_for(hub.close(), timeout=1)
+
+        assert hub.listening_addresses == []
+        assert hub.downstream_connections == []
+    finally:
+        await peer.close()
+
+
+@pytest.mark.asyncio
+async def test_closing_a_node_that_never_listened_is_harmless():
+    hub = BaseLayerNode()
+    await asyncio.wait_for(hub.close(), timeout=1)
+    assert hub.listening_addresses == []

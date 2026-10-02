@@ -296,3 +296,20 @@ async def test_client_failing_receive_callback_costs_only_that_message(caplog):
         await sender.close()
         await receiver.close()
         await hub.close()
+
+
+@pytest.mark.asyncio
+async def test_client_close_without_connecting_or_twice_is_harmless():
+    hub = BaseLayerNode()
+    client = BaseLayerClient()
+    try:
+        await client.close()  # never connected
+        assert client.connection is None
+
+        server = await hub.accept_connection(port=0)
+        await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+        await client.close()
+        await asyncio.wait_for(client.close(), timeout=1)
+        assert client.connection is None
+    finally:
+        await hub.close()

@@ -37,6 +37,15 @@ def test_exact_string_matcher(given_subject, target_subject, expected):
         # case is significant.
         ("A.b", "a.b", False),
         ("a.b", "A.*", False),
+        # only a whole "*" sub-string is a wildcard: "a*" is literal.
+        ("ab", "a*", False),
+        ("a*", "a*", True),
+        # empty sub-strings count like any other.
+        ("a..b", "a.*.b", True),
+        ("a..b", "a..b", True),
+        ("a.b", "a..b", False),
+        ("a.", "a.*", True),
+        ("a", "a.*", False),
     ],
 )
 def test_string_pattern_matcher(given_subject, target_subject, expected):

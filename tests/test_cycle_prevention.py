@@ -12,6 +12,7 @@ from software_bus._cli import ConnectFailed
 from software_bus.pubsub import (
     CycleCheckRefused,
     HelloMessage,
+    PublishMessage,
     ReachabilityQueryMessage,
     ReachabilityReplyMessage,
     ReachabilityResult,
@@ -238,6 +239,60 @@ async def test_check_that_keeps_getting_unknown_retries_then_refuses():
             await server.wait_closed()
 
 
+@pytest.mark.asyncio
+async def test_a_found_reply_refuses_at_once_without_waiting_for_the_others():
+    node = PubSubNode()  # default check_timeout: a wait for the silent peer would take 5 s
+    servers = [await accept_one_peer_connection() for _ in range(3)]
+    try:
+        (server_1, connected_1), (server_2, connected_2), (server_3, connected_3) = servers
+        existing_1 = await establish_to_raw_peer(node, server_1, connected_1)
+        existing_2 = await establish_to_raw_peer(node, server_2, connected_2, answering=[existing_1])
+
+        task = asyncio.ensure_future(
+            node.establish_connection("127.0.0.1", server_3.sockets[0].getsockname()[1])
+        )
+        await greet_as_node(await asyncio.wait_for(connected_3, timeout=1))
+        query = await _receive(existing_1)
+        assert isinstance(await _receive(existing_2), ReachabilityQueryMessage)  # never answered
+        await existing_1.send(
+            encode_message(ReachabilityReplyMessage(query.query_id, ReachabilityResult.FOUND))
+        )
+
+        with pytest.raises(CycleCheckRefused, match="would create a cycle"):
+            await asyncio.wait_for(task, timeout=1)
+    finally:
+        await node.close()
+        for server, _ in servers:
+            server.close()
+            await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_a_connection_that_fails_before_replying_counts_as_not_found():
+    node = PubSubNode()  # default check_timeout: waiting it out would take 5 s
+    servers = [await accept_one_peer_connection() for _ in range(3)]
+    try:
+        (server_1, connected_1), (server_2, connected_2), (server_3, connected_3) = servers
+        existing_1 = await establish_to_raw_peer(node, server_1, connected_1)
+        existing_2 = await establish_to_raw_peer(node, server_2, connected_2, answering=[existing_1])
+
+        task = asyncio.ensure_future(
+            node.establish_connection("127.0.0.1", server_3.sockets[0].getsockname()[1])
+        )
+        await greet_as_node(await asyncio.wait_for(connected_3, timeout=1))
+        await answer_query(existing_1, ReachabilityResult.NOT_FOUND)
+        assert isinstance(await _receive(existing_2), ReachabilityQueryMessage)
+        await existing_2.close()  # fails without replying
+
+        await asyncio.wait_for(task, timeout=1)  # accepted
+        assert len(node.upstream_connections) == 2  # existing_1 and the new one
+    finally:
+        await node.close()
+        for server, _ in servers:
+            server.close()
+            await server.wait_closed()
+
+
 # --- the pending connection -------------------------------------------------------
 
 
@@ -342,6 +397,97 @@ async def test_subscriptions_flow_both_ways_once_accepted():
         await child_publisher.close()
         await child.close()
         await parent.close()
+
+
+@pytest.mark.asyncio
+async def test_peer_dropping_during_the_check_fails_establish_connection():
+    server, connected = await accept_one_peer_connection()
+    node = PubSubNode()  # default check_timeout: the failure must not wait for it
+    try:
+        task = asyncio.ensure_future(
+            node.establish_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        )
+        peer = await asyncio.wait_for(connected, timeout=1)
+        await expect_hello(peer)
+
+        await peer.close()
+
+        with pytest.raises(ConnectionError):
+            await asyncio.wait_for(task, timeout=1)
+        assert node.upstream_connections == []
+        assert node._pending == {}
+    finally:
+        await node.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_messages_held_from_a_refused_connection_are_discarded():
+    node, port = await _start_node()
+    server, connected = await accept_one_peer_connection()
+    subscriber = PubSubClient()
+    received = []
+    try:
+        await subscriber.connect("127.0.0.1", port)
+        await subscriber.subscribe("a.b", lambda m, a, payload: received.append(payload))
+        await asyncio.sleep(0.05)
+
+        task = asyncio.ensure_future(
+            node.establish_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        )
+        peer = await asyncio.wait_for(connected, timeout=1)
+        await expect_hello(peer)
+        await peer.send(encode_message(SubscriptionMessage("x.y", subscribe=True)))
+        await peer.send(encode_message(PublishMessage("a.b", b"held")))
+        await peer.send(encode_message(HelloMessage(node.node_id)))  # refused: it is itself
+
+        with pytest.raises(CycleCheckRefused, match="itself"):
+            await asyncio.wait_for(task, timeout=5)
+        await asyncio.sleep(0.1)
+
+        assert node._upstream_subscriptions == {}
+        assert received == []
+    finally:
+        await subscriber.close()
+        await node.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_a_connection_failing_while_its_held_messages_are_replayed_stops_the_replay():
+    server, connected = await accept_one_peer_connection()
+    node = PubSubNode()
+    original_handle_message = node._handle_message
+
+    async def fail_after_the_first(source, message, *, from_upstream):
+        await original_handle_message(source, message, from_upstream=from_upstream)
+        if message == SubscriptionMessage("first", subscribe=True):
+            await node._base._handle_connection_error(
+                source, True, ConnectionResetError("simulated failure")
+            )
+
+    node._handle_message = fail_after_the_first
+    try:
+        task = asyncio.ensure_future(
+            node.establish_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        )
+        peer = await asyncio.wait_for(connected, timeout=1)
+        await expect_hello(peer)
+        await peer.send(encode_message(SubscriptionMessage("first", subscribe=True)))
+        await peer.send(encode_message(SubscriptionMessage("second", subscribe=True)))
+        await asyncio.sleep(0.05)
+        await peer.send(encode_message(HelloMessage(uuid.uuid4().bytes)))
+        await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), timeout=5)
+
+        # "first" went with the failed connection; "second" must not tag a dead connection
+        assert node._upstream_subscriptions == {}
+        assert node.upstream_connections == []
+    finally:
+        await node.close()
+        server.close()
+        await server.wait_closed()
 
 
 # --- answering queries -----------------------------------------------------------
@@ -516,6 +662,77 @@ async def test_node_answers_unknown_while_checking():
     finally:
         await node.close()
         for server in (server_1, server_2):
+            server.close()
+            await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_a_reply_arriving_after_the_result_is_known_is_ignored():
+    node, port, asking_peer = await _node_with_raw_node_peer()
+    node.check_timeout = 0.2
+    slow_peer = await open_peer_connection("127.0.0.1", port)
+    try:
+        await expect_hello(slow_peer)
+        await slow_peer.send(encode_message(HelloMessage(uuid.uuid4().bytes)))
+        await asyncio.sleep(0.05)
+
+        query = ReachabilityQueryMessage(uuid.uuid4().bytes, uuid.uuid4().bytes)
+        await asking_peer.send(encode_message(query))
+        assert await _receive(slow_peer) == query
+        assert await _receive(asking_peer) == ReachabilityReplyMessage(
+            query.query_id, ReachabilityResult.UNKNOWN
+        )
+
+        await slow_peer.send(
+            encode_message(ReachabilityReplyMessage(query.query_id, ReachabilityResult.FOUND))
+        )
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(asking_peer.receive(), timeout=0.2)
+        assert node._queries == {}
+    finally:
+        await slow_peer.close()
+        await asking_peer.close()
+        await node.close()
+
+
+@pytest.mark.asyncio
+async def test_query_on_a_pending_connection_while_checking_is_answered_unknown():
+    node = PubSubNode()
+    servers = [await accept_one_peer_connection() for _ in range(3)]
+    third = None
+    try:
+        (server_1, connected_1), (server_2, connected_2), (server_3, connected_3) = servers
+        existing = await establish_to_raw_peer(node, server_1, connected_1)
+
+        second = asyncio.ensure_future(
+            node.establish_connection("127.0.0.1", server_2.sockets[0].getsockname()[1])
+        )
+        await greet_as_node(await asyncio.wait_for(connected_2, timeout=1))
+        own_query = await _receive(existing)  # the node is now checking
+
+        third = asyncio.ensure_future(
+            node.establish_connection("127.0.0.1", server_3.sockets[0].getsockname()[1])
+        )
+        pending_peer = await asyncio.wait_for(connected_3, timeout=1)
+        await expect_hello(pending_peer)  # pending, waiting for the first check to finish
+
+        query_id = uuid.uuid4().bytes
+        await pending_peer.send(
+            encode_message(ReachabilityQueryMessage(query_id, uuid.uuid4().bytes))
+        )
+        assert await _receive(pending_peer) == ReachabilityReplyMessage(
+            query_id, ReachabilityResult.UNKNOWN
+        )
+
+        await existing.send(
+            encode_message(ReachabilityReplyMessage(own_query.query_id, ReachabilityResult.NOT_FOUND))
+        )
+        await asyncio.wait_for(second, timeout=5)
+    finally:
+        await node.close()
+        if third is not None:
+            await asyncio.gather(third, return_exceptions=True)
+        for server, _ in servers:
             server.close()
             await server.wait_closed()
 

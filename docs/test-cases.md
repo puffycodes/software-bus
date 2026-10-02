@@ -1,12 +1,12 @@
 # Test Cases
 
-All 243 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 276 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
-## Subject matching (`test_subject_matcher.py`, 19 cases)
+## Subject matching (`test_subject_matcher.py`, 26 cases)
 - **Exact matcher (4 cases):** a subject matches only an identical subject. `a.b` matches `a.b` but not `a.c` or `a.b.c`, and an empty subject matches an empty subject.
-- **Wildcard pattern matcher (15 cases):**
+- **Wildcard pattern matcher (22 cases):**
   - `a.b` matches `a.b`, `a.*`, `*.b` and `*.*`.
   - `a.b.c` matches `a.*.c`.
   - Different words don't match: `a.b` vs `a.c`.
@@ -14,8 +14,10 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - `*` matches `*`. An empty subject matches `*`, and an empty subject matches an empty subject.
   - A `*` in the *published* subject is just a character, not a wildcard: `a.*` doesn't match a subscription to `a.b`, but does match a subscription to `a.*`.
   - Matching is case-sensitive: `A.b` doesn't match `a.b`, and `a.b` doesn't match `A.*`.
+  - Only a whole `*` part is a wildcard: `ab` doesn't match `a*`, which only matches `a*` itself.
+  - Empty parts count like any other part: `a..b` matches `a.*.b` and `a..b`, `a.b` doesn't match `a..b`, `a.` matches `a.*`, and `a` doesn't match `a.*`.
 
-## Base layer node (`test_base_layer.py`, 20 cases)
+## Base layer node (`test_base_layer.py`, 27 cases)
 - **Setup and listening**
   - A new node isn't listening and has no connections.
   - Listening with no arguments uses the default address, 127.0.0.1:8787.
@@ -25,24 +27,30 @@ Some behaviour can't be tested automatically; those tests are described at the e
 - **Connecting**
   - Two nodes can connect, and each records the connection on the correct side (upstream or downstream).
   - The "new connection" callbacks are called for both new upstream and new downstream connections.
+- **Framing**
+  - Each message is sent as a 4-byte big-endian length followed by the payload, and an empty payload is just the 4-byte length.
+  - Message boundaries are kept however TCP delivers the bytes: several messages (one of them empty) in a single read, and one message split in the middle of its length and of its payload.
+  - A 2 MiB message is relayed intact.
 - **Relaying data**
   - Data from a downstream connection goes to every upstream connection and every other downstream connection.
   - Data from an upstream connection goes to every downstream connection and every other upstream connection.
   - Data is never sent back to the connection it came from.
   - Registering your own upstream receive callback replaces the default relaying.
   - Registering your own downstream receive callback replaces the default relaying.
+  - A receive callback can be an async function.
   - If a receive callback fails, only that one message is lost: the connection stays open, later messages still arrive, no connection error is reported, and the failure is logged.
 - **Connection errors**
   - When an upstream peer drops, the connection is removed and the upstream error callback is called.
   - When a downstream peer drops, the connection is removed and the downstream error callback is called.
-  - An error callback can be an async function.
+  - An error callback can be an async function, for upstream and for downstream connections.
   - The default error callbacks log a message.
   - If sending to one connection fails while relaying, only that connection is removed; the others keep receiving.
 - **Closing**
   - Closing a node empties its lists of connections and listening addresses.
   - Closing a node doesn't report its own connections as errors, but the peer at the other end does see its connection dropped.
+  - Closing a node twice, or closing one that never listened, does no harm.
 
-## Base layer client (`test_client.py`, 14 cases)
+## Base layer client (`test_client.py`, 15 cases)
 - **Connecting**
   - A new client isn't connected and has no receive callback.
   - The client's default address to connect to is the same as the node's default listening address.
@@ -59,10 +67,13 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - When the node drops the connection, the connection error callback is called.
   - The default connection error callback logs a message.
   - Closing the client does not call the connection error callback.
+  - Closing a client that never connected, or closing it twice, does no harm.
   - A failed send is reported to the connection error callback and also raised to the caller.
 
-## Publish/subscribe (`test_pubsub.py`, 47 cases)
-- **Wire format (19 cases)**
+## Publish/subscribe (`test_pubsub.py`, 53 cases)
+- **Wire format (21 cases)**
+  - Subscription and publish messages have exactly the byte layout in `data-format.md`, including a subject's length counted in UTF-8 bytes.
+  - Bytes after a subscription's subject are ignored.
   - A subscription message survives encoding and decoding unchanged.
   - A publish message with binary content survives encoding and decoding unchanged.
   - Edge cases survive encoding and decoding: an empty subject, a subject with non-ASCII characters, and an empty payload (4 cases).
@@ -74,6 +85,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Subscribing with a subject that's too long raises an error and leaves nothing registered.
   - Only the first callback on a subject sends a subscription to the node.
   - Only removing the last callback on a subject sends an unsubscription.
+  - Unsubscribing from a subject the client never subscribed to, or with a callback it never registered, sends nothing and keeps the existing callbacks.
   - Every callback on the same client and subject is called for a publish.
   - A subscription callback can be an async function.
   - If one subscription callback fails, the others still get the publish. This includes the client's own publishes, and the failure isn't raised to the publisher.
@@ -97,15 +109,18 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Unsubscribing stops delivery and is passed upstream.
   - An unsubscribe isn't passed on while other subscribers to the subject remain.
   - Unsubscribing from one of two overlapping subjects keeps delivery through the other.
+  - An unsubscribe for a subject the connection never subscribed to isn't passed on (otherwise nodes could bounce unsubscribes back and forth).
   - When every subscriber leaves, the subscriptions between nodes are torn down.
   - A downstream connection dropping counts as unsubscribing from all its subjects, and this is passed on.
   - The same applies when an upstream connection drops.
+  - Closing a node sends no unsubscribes (its connections just end) and forgets every subscription.
 - **Robustness**
   - A node logs and ignores a malformed message, and keeps the connection.
   - A client logs and ignores a malformed message, and keeps receiving.
+  - A client logs and ignores reachability queries and replies (not as malformed), replies nothing, and keeps receiving.
   - A client's connection error callback is called when its node goes away.
 
-## Cycle prevention (`test_cycle_prevention.py`, 36 cases)
+## Cycle prevention (`test_cycle_prevention.py`, 43 cases)
 - **Wire format (13 cases)**
   - Hello, query and reply messages (all three results) survive encoding and decoding unchanged (5 cases).
   - Their byte layout is exactly as specified.
@@ -121,12 +136,17 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A connection to a base layer node is refused, because it never identifies itself.
   - A connection to any peer that never sends Hello is refused.
   - A check that keeps getting "unknown" retries, then gives up and refuses.
+  - A "found" reply refuses the connection at once, without waiting for the other nodes to reply.
+  - A node that fails before replying counts as "not found", so the check doesn't wait for it.
   - `ps_server` exits with an error if an upstream connection is refused.
 - **The pending period**
   - Messages received on a connection still being checked are held until it's accepted.
   - Nothing is sent on a connection still being checked until it's accepted.
   - Once accepted, subscriptions flow both ways.
   - Closing a node while a check is still waiting for Hello ends the check straight away with an error.
+  - The peer dropping during the check ends it straight away with an error.
+  - Messages held from a connection that is then refused are thrown away: its subscriptions aren't recorded and its publishes aren't delivered.
+  - If the connection fails while its held messages are being processed, the rest are dropped, so none of them tags a dead connection.
 - **Answering queries**
   - A query for the node itself is answered "found".
   - A query with no other nodes to pass it to is answered "not found".
@@ -135,6 +155,8 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - The same query arriving twice is answered "unknown".
   - A node that's running a check of its own answers "unknown".
   - A query arriving on a connection still being checked is answered "not found", even when it asks for this node.
+  - A query arriving on a connection still being checked while the node is running a check of its own is answered "unknown".
+  - A reply that arrives after the query has been answered is ignored.
   - A client quietly ignores Hello messages.
 - **Links added at the same time**
   - A node that adds two links at once checks them one at a time.
@@ -162,7 +184,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A connection failure exits with status 1.
   - A lost connection exits with status 1.
 
-## Base layer scripts (`test_scripts.py`, 20 cases)
+## Base layer scripts (`test_scripts.py`, 21 cases)
 - **Address parsing**
   - An `ip:port` address is parsed correctly.
   - Malformed addresses are rejected (4 cases): no port, no host, an empty port, and a non-numeric port.
@@ -173,8 +195,9 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Running it listens and connects upstream.
   - An unreachable upstream raises a clear "cannot connect" error.
   - An address already in use raises a clear "cannot listen" error.
+  - Losing its upstream connection later doesn't stop it: it keeps relaying between its other connections.
 - **`bl_client`**
-  - Its default address matches the base layer default.
+  - Its default address matches the base layer default, and `--time-stamp` defaults to true.
   - `--message` defaults to none.
   - Custom repeat options are parsed.
   - It sends its message and prints what it receives.
@@ -184,7 +207,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - The server going away raises "connection lost".
   - It stops repeating when the server goes away.
 
-## Pub/sub scripts (`test_ps_scripts.py`, 19 cases)
+## Pub/sub scripts (`test_ps_scripts.py`, 20 cases)
 - **Subject list parsing**
   - A comma-separated list is split and its whitespace trimmed.
   - An empty list is rejected.
@@ -194,6 +217,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Running it listens and passes subscriptions upstream.
   - An unreachable upstream raises "cannot connect".
   - An address already in use raises "cannot listen".
+  - Losing its upstream connection later doesn't stop it: its clients can still publish and subscribe.
 - **`ps_subscribe`**
   - `--subject` is required.
   - Comma-separated subjects are parsed.
@@ -209,7 +233,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - An unreachable server raises "cannot connect".
   - The server going away partway through the repeats raises "connection lost".
 
-## `bus_check` (`test_bus_check.py`, 40 cases)
+## `bus_check` (`test_bus_check.py`, 43 cases)
 - **Recognising node processes (11 cases)**
   - Nodes are recognised when started as `python -m software_bus.bl_server` or `ps_server`, including under a full Python path on Linux or Windows.
   - The installed `bl_server.exe` is recognised.
@@ -239,6 +263,9 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A node whose sockets the operating system hides gets a warning.
   - A node that simply has no sockets (started with neither `--listen` nor `--upstream`) gets no warning.
   - Whether a node's sockets are hidden is decided by asking the operating system about that process: a refusal means hidden, while no sockets or a `--pid` that isn't running does not.
+  - Collecting finds the nodes and drops a Windows launcher. A `--pid` process is added with kind `node`, but a `--pid` that is already a known node keeps its own kind. Only listening and established sockets are kept.
+  - Without `psutil` installed, the check can't run and says how to install it.
+  - If the operating system refuses to list connections, the check can't run.
   - With everything visible, no warnings are printed.
   - The report lists the nodes and the cycle.
   - With no cycles, the report says "No cycles found."

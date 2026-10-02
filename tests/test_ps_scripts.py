@@ -279,3 +279,41 @@ async def test_ps_server_run_raises_listen_failed_when_address_in_use():
     finally:
         occupier.close()
         await occupier.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_ps_server_run_keeps_serving_after_losing_its_upstream():
+    upstream_server, upstream_connected = await accept_one_peer_connection()
+    upstream_port = upstream_server.sockets[0].getsockname()[1]
+    listen_port = free_port()
+
+    task = asyncio.ensure_future(
+        ps_server.run([("127.0.0.1", upstream_port)], [("127.0.0.1", listen_port)])
+    )
+    subscriber = PubSubClient()
+    publisher = PubSubClient()
+    received = []
+    try:
+        upstream_peer = await asyncio.wait_for(upstream_connected, timeout=1)
+        await greet_as_node(upstream_peer)  # lets the server's cycle check accept it
+        await asyncio.sleep(0.05)  # let the server task reach accept_connection
+
+        await upstream_peer.close()
+        await asyncio.sleep(0.1)
+        assert not task.done()
+
+        await subscriber.connect("127.0.0.1", listen_port)
+        await publisher.connect("127.0.0.1", listen_port)
+        await subscriber.subscribe("a.b", lambda m, a, payload: received.append(payload))
+        await asyncio.sleep(0.05)
+        await publisher.publish("a.b", b"still-serving")
+        await asyncio.sleep(0.1)
+        assert received == [b"still-serving"]
+    finally:
+        await subscriber.close()
+        await publisher.close()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        upstream_server.close()
+        await upstream_server.wait_closed()

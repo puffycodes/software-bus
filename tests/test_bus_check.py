@@ -3,6 +3,7 @@ import socket
 import subprocess
 import sys
 import time
+import types
 
 import pytest
 
@@ -255,6 +256,79 @@ def test_collect_asks_the_os_whether_a_node_s_sockets_are_hidden(monkeypatch):
         3: False,
         99: False,
     }
+
+
+def test_collect_without_psutil_raises_check_error(monkeypatch):
+    monkeypatch.setitem(sys.modules, "psutil", None)  # makes `import psutil` fail
+    with pytest.raises(CheckError, match="psutil"):
+        bus_check.collect()
+
+
+class _FakePsutilRefusingConnections(_FakePsutil):
+    def net_connections(self, kind):
+        raise self.AccessDenied()
+
+
+def test_collect_raises_check_error_when_the_os_refuses_to_list_connections(monkeypatch):
+    monkeypatch.setitem(sys.modules, "psutil", _FakePsutilRefusingConnections())
+    with pytest.raises(CheckError, match="refused to list connections"):
+        bus_check.collect()
+
+
+def _address(address):
+    return types.SimpleNamespace(ip=address[0], port=address[1])
+
+
+def _socket(pid, status, laddr, raddr=()):
+    """A psutil socket entry; a listening socket's raddr is an empty tuple."""
+    return types.SimpleNamespace(
+        pid=pid, status=status, laddr=_address(laddr), raddr=_address(raddr) if raddr else ()
+    )
+
+
+class _FakePsutilWithSockets(_FakePsutil):
+    """pid 5 is a Windows launcher of the node pid 6; pid 7 is not a node."""
+
+    class _Proc:
+        def __init__(self, pid, ppid, cmdline):
+            self.info = {"pid": pid, "ppid": ppid, "cmdline": cmdline}
+
+    def process_iter(self, attrs):
+        return [
+            self._Proc(2, 1, ["python", "-m", "software_bus.bl_server"]),
+            self._Proc(5, 1, [r"C:\venv\Scripts\ps_server.exe"]),
+            self._Proc(6, 5, [r"C:\venv\Scripts\python.exe", "-m", "software_bus.ps_server"]),
+            self._Proc(7, 1, ["python", "my_app.py"]),
+        ]
+
+    def Process(self, pid):
+        return types.SimpleNamespace(net_connections=lambda kind: [])
+
+    def net_connections(self, kind):
+        return [
+            _socket(2, "LISTEN", ("127.0.0.1", 8001)),
+            _socket(6, "ESTABLISHED", ("127.0.0.1", 50000), ("127.0.0.1", 8001)),
+            _socket(2, "ESTABLISHED", ("127.0.0.1", 8001), ("127.0.0.1", 50000)),
+            _socket(None, "TIME_WAIT", ("127.0.0.1", 50001), ("127.0.0.1", 8001)),
+            _socket(2, "CLOSE_WAIT", ("127.0.0.1", 8001), ("127.0.0.1", 50002)),
+        ]
+
+
+def test_collect_finds_nodes_and_keeps_only_listening_and_established_sockets(monkeypatch):
+    monkeypatch.setitem(sys.modules, "psutil", _FakePsutilWithSockets())
+    nodes, connections = bus_check.collect(extra_pids=[2, 7])
+
+    # the launcher is dropped; --pid adds a "node", but keeps a known node's own kind
+    assert {pid: node.kind for pid, node in nodes.items()} == {
+        2: "bl_server",
+        6: "ps_server",
+        7: "node",
+    }
+    assert connections == [
+        TcpConnection(2, ("127.0.0.1", 8001), None, listening=True),
+        TcpConnection(6, ("127.0.0.1", 50000), ("127.0.0.1", 8001)),
+        TcpConnection(2, ("127.0.0.1", 8001), ("127.0.0.1", 50000)),
+    ]
 
 
 def test_format_report_warns_nothing_when_everything_is_seen():
