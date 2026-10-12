@@ -3,7 +3,7 @@ import logging
 
 import pytest
 
-from software_bus import PubSubClient, PubSubNode, RequestMessage, RequestReplyClient
+from software_bus import PubSubClient, PubSubNode, ReplyStatus, RequestMessage, RequestReplyClient
 from software_bus.request_reply import (
     decode_request,
     derived_reply_subject,
@@ -14,6 +14,10 @@ from software_bus.request_reply import (
 )
 
 ID = "A" * 32
+REPLY = ReplyStatus.REPLY
+TIMED_OUT = ReplyStatus.TIMED_OUT
+CLOSED = ReplyStatus.CLOSED
+CONNECTION_LOST = ReplyStatus.CONNECTION_LOST
 
 
 async def start_node():
@@ -130,16 +134,16 @@ async def test_request_reaches_acceptor_and_reply_ends_the_wait():
         await replier.accept_request("svc.echo", on_request)
         await asyncio.sleep(0.05)
 
-        def on_reply(reply_subject, payload, timed_out):
-            replies.append((reply_subject, payload, timed_out))
+        def on_reply(reply_subject, payload, status):
+            replies.append((reply_subject, payload, status))
             return True
 
         handle = await requester.send_request("svc.echo", b"hi", on_reply, timeout=0.3)
-        await asyncio.sleep(0.5)  # past the timeout: no timed-out call may follow
+        await asyncio.sleep(0.5)  # past the timeout: no TIMED_OUT call may follow
 
         assert handle.startswith("_reply.svc.echo.")
         assert requests == [(handle, b"hi")]
-        assert replies == [(handle, b"HI", False)]
+        assert replies == [(handle, b"HI", REPLY)]
         assert handle not in subscribed_subjects(requester)
     finally:
         await requester.close()
@@ -166,8 +170,8 @@ async def test_every_acceptor_replies_and_the_wait_lasts_until_the_timeout():
         )
         await asyncio.sleep(0.5)
 
-        assert sorted(replies[:2]) == [(handle, b"r0", False), (handle, b"r1", False)]
-        assert replies[2:] == [(handle, b"", True)]
+        assert set(replies[:2]) == {(handle, b"r0", REPLY), (handle, b"r1", REPLY)}
+        assert replies[2:] == [(handle, b"", TIMED_OUT)]
         assert handle not in subscribed_subjects(requester)
     finally:
         await requester.close()
@@ -187,12 +191,12 @@ async def test_client_receives_its_own_request_and_reply_before_send_request_ret
 
         await client.accept_request("svc", on_request)
 
-        def on_reply(reply_subject, payload, timed_out):
-            replies.append((payload, timed_out))
+        def on_reply(reply_subject, payload, status):
+            replies.append((payload, status))
             return True
 
         await client.send_request("svc", b"", on_reply, timeout=0.2)
-        assert replies == [(b"own", False)]
+        assert replies == [(b"own", REPLY)]
         # the timer started before the publish, so ending the wait cancelled it
         await asyncio.sleep(0)  # let the cancelled timer finish
         assert not [
@@ -200,7 +204,7 @@ async def test_client_receives_its_own_request_and_reply_before_send_request_ret
             if not task.done() and task.get_coro().__qualname__.endswith("_run_timer")
         ]
         await asyncio.sleep(0.4)  # the timer was cancelled, though it started before the publish
-        assert replies == [(b"own", False)]
+        assert replies == [(b"own", REPLY)]
     finally:
         await client.close()
         await node.close()
@@ -216,7 +220,7 @@ async def test_timeout_without_a_reply():
             "nobody", b"x", lambda *args: replies.append(args), timeout=0.1
         )
         await asyncio.sleep(0.3)
-        assert replies == [(handle, b"", True)]
+        assert replies == [(handle, b"", TIMED_OUT)]
         assert subscribed_subjects(requester) == set()
     finally:
         await requester.close()
@@ -251,7 +255,7 @@ async def test_timeout_zero_waits_until_cancelled_and_cancel_calls_nothing():
 
 
 @pytest.mark.asyncio
-async def test_close_ends_pending_requests_as_timed_out():
+async def test_close_ends_pending_requests_as_closed():
     node, port = await start_node()
     requester = await connected_client(port)
     replies = []
@@ -259,7 +263,7 @@ async def test_close_ends_pending_requests_as_timed_out():
         first = await requester.send_request("a", b"", lambda *args: replies.append(args), timeout=0)
         second = await requester.send_request("b", b"", lambda *args: replies.append(args))
         await requester.close()
-        assert sorted(replies) == sorted([(first, b"", True), (second, b"", True)])
+        assert set(replies) == {(first, b"", CLOSED), (second, b"", CLOSED)}
         assert requester._requests == {}
     finally:
         await requester.close()
@@ -278,7 +282,7 @@ async def test_connection_error_ends_pending_requests_then_calls_the_callback():
         )
         await node.close()
         await asyncio.sleep(0.2)
-        assert events == [(handle, b"", True), "error"]
+        assert events == [(handle, b"", CONNECTION_LOST), "error"]
         assert requester._requests == {}
     finally:
         await requester.close()
@@ -318,7 +322,7 @@ async def test_connection_lost_while_sending_is_reported_once_as_an_error():
         with pytest.raises(OSError):
             await requester.send_request("b", b"", lambda *args: replies.append(args), timeout=0)
 
-        assert replies == [(pending, b"", True)]  # only the request that had been sent
+        assert replies == [(pending, b"", CONNECTION_LOST)]  # only the request that had been sent
         assert len(errors) == 1
         assert requester._requests == {}
         assert subscribed_subjects(requester) == set()
@@ -328,8 +332,10 @@ async def test_connection_lost_while_sending_is_reported_once_as_an_error():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("closed_by", ["close", "connection error"])
-async def test_request_sent_while_the_client_is_closed_ends_once_sent(closed_by):
+@pytest.mark.parametrize(
+    "closed_by, status", [("close", CLOSED), ("connection error", CONNECTION_LOST)]
+)
+async def test_request_sent_while_the_client_is_closed_ends_once_sent(closed_by, status):
     """Close (or a connection error) skips a request still being sent; if the
     send then succeeds, send_request ends the wait itself, as close would have."""
     node, port = await start_node()
@@ -349,7 +355,7 @@ async def test_request_sent_while_the_client_is_closed_ends_once_sent(closed_by)
         handle = await requester.send_request(
             "a", b"", lambda *args: replies.append(args), timeout=0
         )
-        assert replies == [(handle, b"", True)]
+        assert replies == [(handle, b"", status)]
         assert requester._requests == {}
         assert subscribed_subjects(requester) == set()
     finally:
@@ -398,7 +404,7 @@ async def test_failing_reply_callback_keeps_the_wait(caplog):
         await replier.accept_request("svc", on_request)
         await asyncio.sleep(0.05)
 
-        def on_reply(reply_subject, payload, timed_out):
+        def on_reply(reply_subject, payload, status):
             replies.append(payload)
             if payload == b"1":
                 raise RuntimeError("boom")
@@ -428,16 +434,16 @@ async def test_timeout_during_a_running_reply_callback_ends_the_wait_once():
         )
         await asyncio.sleep(0.05)
 
-        async def on_reply(reply_subject, payload, timed_out):
-            events.append(("start", timed_out))
-            if not timed_out:
+        async def on_reply(reply_subject, payload, status):
+            events.append(("start", status))
+            if status is REPLY:
                 await asyncio.sleep(0.3)  # the timeout fires meanwhile
                 events.append("returns true")
             return True
 
         await requester.send_request("svc", b"", on_reply, timeout=0.1)
         await asyncio.sleep(0.6)
-        assert events == [("start", False), ("start", True), "returns true"]
+        assert events == [("start", REPLY), ("start", TIMED_OUT), "returns true"]
         assert requester._requests == {}
     finally:
         await requester.close()

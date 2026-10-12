@@ -174,22 +174,22 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A wildcard request subject, a derived subject over the length limit, a negative timeout and an invalid reply subject are all rejected with an error, leaving nothing subscribed or registered.
   - The longest request subjects allowed (65526 bytes to accept requests, 65495 bytes to send one) are accepted.
 - **Requests and replies**
-  - A request reaches an acceptor in another client, the reply reaches the requester, and returning true ends the wait: the reply subscription is removed and no timed-out call follows.
-  - Every acceptor gets the request and replies, and a requester that never returns true gets every reply, then one timed-out call when the timeout ends the wait.
+  - A request reaches an acceptor in another client, the reply reaches the requester, and returning true ends the wait: the reply subscription is removed and no `TIMED_OUT` call follows.
+  - Every acceptor gets the request and replies, and a requester that never returns true gets every reply (each with `REPLY`), then one `TIMED_OUT` call when the timeout ends the wait.
   - A client that accepts requests gets its own request, and the reply reaches it before `send_request` returns; the timer, started before the request was published, is cancelled and never fires.
-  - A request nobody answers ends with one timed-out call (the reply subject, an empty payload, timed out) and its subscription removed.
+  - A request nobody answers ends with one call with the reply subject, an empty payload and `TIMED_OUT`, and its subscription removed.
   - With a timeout of 0 a request waits until cancelled. Cancelling ends the wait without calling the callback, and later replies aren't delivered; cancelling again, or cancelling an unknown request, does nothing.
 - **Closing and connection failures**
-  - Closing the client ends every pending request with a timed-out call.
-  - Losing the connection ends every pending request with a timed-out call, then calls the connection error callback.
+  - Closing the client ends every pending request with a `CLOSED` call.
+  - Losing the connection ends every pending request with a `CONNECTION_LOST` call, then calls the connection error callback.
   - Sending a request when not connected raises an error, calls nothing and leaves nothing behind.
   - Accepting requests when not connected raises an error and leaves nothing registered or subscribed.
   - Stopping an acceptor after the connection is lost raises an error, but the acceptor is still forgotten and its subscription removed locally.
-  - Losing the connection while a request is being sent is reported once, as an error from `send_request`; only requests already sent get a timed-out call.
-  - If the client is closed, or loses its connection, while a request is being sent but the send still succeeds, `send_request` ends that request with a timed-out call once it's sent, instead of leaving it waiting (2 cases).
+  - Losing the connection while a request is being sent is reported once, as an error from `send_request`; only requests already sent get a `CONNECTION_LOST` call.
+  - If the client is closed, or loses its connection, while a request is being sent but the send still succeeds, `send_request` ends that request once it's sent, with `CLOSED` or `CONNECTION_LOST` respectively, instead of leaving it waiting (2 cases).
 - **Callbacks**
   - A reply callback that raises an error is logged and the wait continues: the next reply is still delivered.
-  - If the timeout fires while an async reply callback is still running, the timed-out call is made once and the running callback's later true return changes nothing.
+  - If the timeout fires while an async reply callback is still running, the `TIMED_OUT` call is made once and the running callback's later true return changes nothing.
   - Accepting with the same subject and callback twice still calls it once per request. A failing request callback is logged and doesn't stop another acceptor on the same client. Stopping one callback leaves the others accepting, stopping it again does nothing, and stopping the last one removes the subscription.
   - An acceptor logs and ignores bad requests (3 cases): a malformed Request Message, one whose reply subject isn't a reply subject, and one whose reply subject belongs to a different request subject.
 

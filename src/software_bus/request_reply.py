@@ -17,6 +17,7 @@ import logging
 import secrets
 import string
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from .base_layer import (
@@ -46,8 +47,20 @@ DEFAULT_TIMEOUT = 5 * 60.0
 ReceivedRequestCallback = Callable[[str, bytes], Any]
 """Called with (reply_subject, request_payload)."""
 
-ReceivedReplyCallback = Callable[[str, bytes, bool], Any]
-"""Called with (reply_subject, reply_payload, timed_out); a true return value ends the wait."""
+
+
+class ReplyStatus(Enum):
+    """Why a received reply callback is called: with a reply, or because the wait ended without one."""
+
+    REPLY = "reply"
+    TIMED_OUT = "timed out"
+    CLOSED = "closed"
+    CONNECTION_LOST = "connection lost"
+
+
+ReceivedReplyCallback = Callable[[str, bytes, ReplyStatus], Any]
+"""Called with (reply_subject, reply_payload, status); a true return value ends the wait
+(ignored unless status is REPLY)."""
 
 
 @dataclass
@@ -148,7 +161,8 @@ class _PendingRequest:
     subscription: Optional[PublishCallback] = None
     timer: Optional["asyncio.Future[None]"] = None
     sending: bool = True  # Send Request hasn't returned yet
-    closed_meanwhile: bool = False  # close/connection error skipped it while sending
+    # set when close/a connection error skipped it while sending: how to end it once sent
+    closed_meanwhile: Optional[ReplyStatus] = None
     ended: bool = False
 
 
@@ -175,8 +189,8 @@ class RequestReplyClient:
         self._connection_error_callback = callback
 
     async def close(self) -> None:
-        """End every pending request's wait (reported as timed out), then close the connection."""
-        await self._end_all_without_reply()
+        """End every pending request's wait (reported as CLOSED), then close the connection."""
+        await self._end_all_without_reply(ReplyStatus.CLOSED)
         await self._client.close()
 
     async def accept_request(self, request_subject: str, callback: ReceivedRequestCallback) -> None:
@@ -246,7 +260,7 @@ class RequestReplyClient:
             if request.ended:
                 return
             try:
-                done = await _call(callback, actual, reply_payload, False)
+                done = await _call(callback, actual, reply_payload, ReplyStatus.REPLY)
             except Exception:
                 # counts as a false return value: keep waiting
                 logger.exception("Received reply callback for %r failed", reply_subject)
@@ -271,9 +285,9 @@ class RequestReplyClient:
             raise
         finally:
             request.sending = False
-        if request.closed_meanwhile and not request.ended:
-            # sent, but the client was closed meanwhile: end it as close would have
-            await self._end_without_reply(request)
+        if request.closed_meanwhile is not None and not request.ended:
+            # sent, but the client was closed meanwhile: end it as close/the error would have
+            await self._end_without_reply(request, request.closed_meanwhile)
         return reply_subject
 
     async def cancel_request(self, reply_subject: str) -> None:
@@ -292,7 +306,7 @@ class RequestReplyClient:
         await asyncio.sleep(timeout)
         request.timer = None  # fired: ending the wait mustn't cancel this task
         if not request.ended:
-            await self._end_without_reply(request)
+            await self._end_without_reply(request, ReplyStatus.TIMED_OUT)
 
     async def _end_wait(self, request: _PendingRequest) -> None:
         """End of the wait: done exactly once per request."""
@@ -304,23 +318,23 @@ class RequestReplyClient:
         if request.subscription is not None:
             await self._unsubscribe_quietly(request.reply_subject, request.subscription)
 
-    async def _end_without_reply(self, request: _PendingRequest) -> None:
-        """End the wait and make the single call with timed_out set to true."""
+    async def _end_without_reply(self, request: _PendingRequest, status: ReplyStatus) -> None:
+        """End the wait and make the single call saying why, with no reply."""
         await self._end_wait(request)
         try:
-            await _call(request.callback, request.reply_subject, b"", True)
+            await _call(request.callback, request.reply_subject, b"", status)
         except Exception:
             logger.exception("Received reply callback for %r failed", request.reply_subject)
 
-    async def _end_all_without_reply(self) -> None:
+    async def _end_all_without_reply(self, status: ReplyStatus) -> None:
         # a request still being sent reports its failure through send_request instead
         for request in list(self._requests.values()):
             if request.ended:
                 continue
             if request.sending:
-                request.closed_meanwhile = True  # send_request ends it once sent
+                request.closed_meanwhile = status  # send_request ends it once sent
             else:
-                await self._end_without_reply(request)
+                await self._end_without_reply(request, status)
 
     async def _unsubscribe_quietly(self, subject: str, callback: PublishCallback) -> None:
         """Unsubscribe; if the node can't be told, the subscription is still removed locally."""
@@ -332,7 +346,7 @@ class RequestReplyClient:
     async def _on_connection_error(
         self, connection: Connection, error: Optional[BaseException]
     ) -> None:
-        await self._end_all_without_reply()
+        await self._end_all_without_reply(ReplyStatus.CONNECTION_LOST)
         try:
             await _maybe_await(self._connection_error_callback(connection, error))
         except Exception:

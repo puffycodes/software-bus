@@ -40,7 +40,7 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
 - If a callback raises an error, log the error with its details and carry on. The error is not reported to the caller of the operation that triggered the callback, and the connection is kept.
     - A failing **received request callback** does not stop the other **received request callbacks** for the same request from being called.
     - A failing **received reply callback** does not end the wait: it counts as returning a false value, and later replies are still delivered.
-    - A failing **received reply callback** in the call with **timed out** set to true does not stop **Close** or a connection error from ending the other requests' waits.
+    - A failing **received reply callback** in a call that ends the wait without a reply (**reply status** **closed** or **connection lost**) does not stop **Close** or a connection error from ending the other requests' waits.
 - Callbacks run on the Publish and Subscribe client's receive loop: the client handles the next received message only once the callback has returned (see Message Processing in `publish-subscribe.md`). A callback that takes long therefore delays everything else the client receives, including replies to its own requests. Long work should be started as a separate task rather than done or awaited inside the callback.
 
 ## Request and Reply Client Class
@@ -56,12 +56,12 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
 - **Register Connection Error Callback** Provide a function to call when there is an error with the connection to the upstream node.
     - The default is the same as the Publish and Subscribe client's.
     - The class registers its own connection error callback on the Publish and Subscribe client. When the connection fails, it:
-        - Ends the wait of every request whose wait has not ended yet, except a request whose Send Request has not returned yet (see **Upon failure** and **Closed meanwhile** in **Send Request**), and calls their **received reply callback**, the same way as **Close** does.
+        - Ends the wait of every request whose wait has not ended yet, except a request whose Send Request has not returned yet (see **Upon failure** and **Closed meanwhile** in **Send Request**), and calls their **received reply callback** the same way as **Close** does, but with the **reply status** **connection lost**.
         - Then calls the registered connection error callback.
 - **Close** Close the connection to the upstream node.
     - Before closing the connection, for every request whose wait has not ended yet (see **End of the wait** in **Send Request**), except a request whose Send Request has not returned yet (see **Upon failure** and **Closed meanwhile** in **Send Request**):
         - End the wait.
-        - Call its **received reply callback** with its **Derived Reply Subject**, an empty **reply payload**, and **timed out** set to true, the same way as **Upon timeout**.
+        - Call its **received reply callback** with its **Derived Reply Subject**, an empty **reply payload**, and the **reply status** **closed**.
             - The return value of the **received reply callback** is ignored.
 
 - **Accept Request**
@@ -105,7 +105,11 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
             - The function takes the following parameters:
                 - The **reply subject** that is used to receive this reply.
                 - The **reply payload**.
-                - The **timed out** flag: true if this call carries no reply because the wait ended by the timeout, by **Close**, or by a connection error; otherwise false.
+                - The **reply status**, which says why the callback is called:
+                    - **reply**: this call carries a reply.
+                    - **timed out**: the wait ended by the timeout. This call carries no reply.
+                    - **closed**: the wait ended by **Close**. This call carries no reply.
+                    - **connection lost**: the wait ended by a connection error. This call carries no reply.
         - A **timeout** in seconds.
             - Default is 5 minutes (which is 5 * 60 = 300 seconds).
             - A timeout value of 0 means wait forever.
@@ -116,7 +120,7 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
                 - Use the **actual subject** received in the subscription callback as the **reply subject**.
                 - Use the **payload** received in the subscription callback as the **reply payload**.
                 - If the wait has already ended (see **End of the wait** below), do nothing.
-                - Call the **received reply callback** with the **reply subject**, the **reply payload**, and **timed out** set to false.
+                - Call the **received reply callback** with the **reply subject**, the **reply payload**, and the **reply status** **reply**.
                     - If the call to the **received reply callback** returns a true value, end the wait, unless it has already ended meanwhile.
         - Start the timer for the **timeout**.
             - If the **timeout** is 0, no timer is started: the wait does not end by timeout, and **Upon timeout** never happens.
@@ -124,10 +128,10 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
         - Publish a **Request Message**, with the **Derived Reply Subject** as its **reply subject** and the given **request payload**, to the **Derived Request Subject**.
     - **Upon failure** If subscribing or publishing fails (e.g. the client is not connected, or the connection fails while sending):
         - End the wait, unless it has already ended. The subscription is removed locally even if the upstream node cannot be told.
-        - Report the error to the caller. Nothing is returned, and the **received reply callback** is not called with **timed out** set to true for this request.
+        - Report the error to the caller. Nothing is returned, and the **received reply callback** is not called to report the end of the wait for this request.
         - While Send Request has not returned yet, a connection error (and **Close**) does not end this request's wait or call its **received reply callback**; the failure is reported only through the error above. This keeps a single failure from being reported twice.
     - **Closed meanwhile** If **Close** or a connection error happened while Send Request had not returned yet, but subscribing and publishing still succeeded:
-        - Once publishing has finished, end the wait (unless it has already ended) and call the **received reply callback** with the **Derived Reply Subject**, an empty **reply payload**, and **timed out** set to true, the same way **Close** or the connection error would have.
+        - Once publishing has finished, end the wait (unless it has already ended) and call the **received reply callback** with the **Derived Reply Subject**, an empty **reply payload**, and the **reply status** **closed** or **connection lost** respectively, the same way **Close** or the connection error would have.
         - Then return the **Derived Reply Subject** as usual.
         - Without this, the request would be left waiting on a closed client: until its timeout, or forever with a **timeout** of 0.
     - Returns:
@@ -137,7 +141,7 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
     - **Upon timeout**
         - If the wait has already ended, do nothing.
         - End the wait.
-        - Call the **received reply callback** with the **Derived Reply Subject**, an empty **reply payload**, and **timed out** set to true.
+        - Call the **received reply callback** with the **Derived Reply Subject**, an empty **reply payload**, and the **reply status** **timed out**.
             - The return value of the **received reply callback** is ignored.
     - **End of the wait**
         - The wait for replies to a request ends exactly once, by whichever comes first: the **received reply callback** returning a true value, the timeout, **Cancel Request**, **Close**, a connection error (including one that happened while Send Request had not returned yet, see **Closed meanwhile**), or a failure in Send Request (see **Upon failure**).
@@ -146,7 +150,7 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
             - Unsubscribe from the **Derived Reply Subject**.
                 - If the upstream node cannot be told because the connection has failed, the subscription is still removed locally and the error is ignored.
             - Cancel the timer, if there is one and it has not fired.
-        - Once the wait has ended, the **received reply callback** is not called again, except for the single call with **timed out** set to true when the wait ends by the timeout, by **Close**, or by a connection error.
+        - Once the wait has ended, the **received reply callback** is not called again, except for the single call with the **reply status** **timed out**, **closed** or **connection lost** when the wait ends by the timeout, by **Close** or by a connection error.
             - For example, if the timeout fires while an asynchronous **received reply callback** is still running, the wait ends by the timeout; when that running callback later returns a true value, nothing more happens.
 
 - **Cancel Request**
@@ -163,3 +167,56 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
         - The **reply payload**.
     - Actions:
         - Publish the **reply payload** to the **reply subject**.
+
+## rr_reply Script
+
+- Create an instance of the Request and Reply Client Class.
+- Connect to an upstream server.
+    - parameter --upstream ip:port (default: as per default in Base Layer Node Class)
+- Accept requests.
+    - parameter --accept-request "<request_subject_1>,<request_subject_2>,..." (required)
+- Reply to requests.
+    - print the request subject and the payload of the received request, as "<request_subject>: <request_payload>", with an optional time stamp
+        - parameter --time-stamp true|false (default: true)
+    - reply with the payload "<request_subject>: <reply_message>"
+        - parameter --reply-message "reply_message" (required)
+- Exit with an error message and exit status 1 if:
+    - a request subject is invalid (see **Parameter Checks**, e.g. it contains a wild card or is too long),
+    - it cannot connect to the server, or
+    - the connection to the server is lost.
+- Print logging information.
+    - parameter --debug true|false (default: false)
+
+## rr_request Script
+
+- Create an instance of the Request and Reply Client Class.
+- Connect to an upstream server.
+    - parameter --upstream ip:port (default: as per default in Base Layer Node Class)
+- Send a request.
+    - parameter --request-subject "request_subject" (required)
+    - parameter --request-message "request_message" (default: empty, i.e. an empty request payload)
+    - parameter --timeout n (default: 300 seconds)
+        - 0 means wait forever.
+        - A negative value is rejected.
+- Receive replies.
+    - parameter --continue-waiting true|false (default: true)
+        - true: keep waiting for more replies after each one, until the timeout.
+        - false: end the wait after the first reply (the **received reply callback** returns a true value).
+    - print the request subject and the payload of the received reply, as "<request_subject>: <reply_payload>", with an optional time stamp
+        - parameter --time-stamp true|false (default: true)
+- Upon timeout.
+    - print the request subject and the message "timed out", as "<request_subject>: timed out", with the same optional time stamp
+    - Only for the **reply status** **timed out**. A lost connection (**connection lost**) is not a timeout: it is reported as the error below, and "timed out" is not printed.
+- Exit once the wait for replies has ended (see **End of the wait** in **Send Request**):
+    - with --continue-waiting false, after the first reply, or at the timeout if no reply arrives;
+    - with --continue-waiting true, at the timeout.
+    - With --continue-waiting true and --timeout 0, the wait never ends, so the script keeps printing replies until it is interrupted (e.g. Ctrl-C). This is intended.
+- Exit status:
+    - 0 if at least one reply was received before the wait ended.
+    - 1 if the wait ended by the timeout with no reply received, after printing "<request_subject>: timed out".
+- Exit with an error message and exit status 1 if:
+    - the request subject is invalid (see **Parameter Checks**, e.g. it contains a wild card or is too long),
+    - it cannot connect to the server, or
+    - the connection to the server is lost.
+- Print logging information.
+    - parameter --debug true|false (default: false)

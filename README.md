@@ -330,7 +330,7 @@ one that's invalid or too long raises `ValueError`.
 
 ```python
 import asyncio
-from software_bus import PubSubNode, RequestReplyClient
+from software_bus import PubSubNode, ReplyStatus, RequestReplyClient
 
 async def main():
     node = PubSubNode()
@@ -347,9 +347,11 @@ async def main():
     requester = RequestReplyClient()
     await requester.connect("127.0.0.1", 8787)
 
-    def on_reply(reply_subject, payload, timed_out):
-        print("timed out" if timed_out else f"reply: {payload!r}")
-        return True  # done: stop waiting for more replies
+    def on_reply(reply_subject, payload, status):
+        if status is ReplyStatus.REPLY:
+            print(f"reply: {payload!r}")
+            return True  # done: stop waiting for more replies
+        print(f"no reply: {status.value}")  # timed out, closed or connection lost
 
     handle = await requester.send_request("svc.echo", b"hello", on_reply, timeout=10)
 
@@ -366,11 +368,14 @@ How a request's wait for replies works:
 
 - Every acceptor on the subject gets each request, so there can be several
   replies. The reply callback is called with `(reply_subject, payload,
-  timed_out)` for each one; returning a true value ends the wait.
+  status)` for each one, with `status` `ReplyStatus.REPLY`; returning a true
+  value ends the wait.
 - `timeout` is in seconds (default 300; `0` waits forever). When it runs
   out, the callback is called once more with an empty payload and
-  `timed_out=True`. `close()`, or losing the connection, ends every pending
-  request the same way.
+  `ReplyStatus.TIMED_OUT`. `close()` ends every pending request the same
+  way with `ReplyStatus.CLOSED`, and losing the connection with
+  `ReplyStatus.CONNECTION_LOST`, so a caller can tell a timeout from a
+  lost connection.
 - `send_request` returns the request's reply subject, which
   `cancel_request(handle)` takes to end the wait early, without calling the
   callback.
