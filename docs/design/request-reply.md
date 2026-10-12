@@ -124,6 +124,10 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
         - End the wait, unless it has already ended. The subscription is removed locally even if the upstream node cannot be told.
         - Report the error to the caller. Nothing is returned, and the **received reply callback** is not called with **timed out** set to true for this request.
         - While Send Request has not returned yet, a connection error (and **Close**) does not end this request's wait or call its **received reply callback**; the failure is reported only through the error above. This keeps a single failure from being reported twice.
+    - **Closed meanwhile** If **Close** or a connection error happened while Send Request had not returned yet, but subscribing and publishing still succeeded:
+        - Once publishing has finished, end the wait (unless it has already ended) and call the **received reply callback** with the **Derived Reply Subject**, an empty **reply payload**, and **timed out** set to true, the same way **Close** or the connection error would have.
+        - Then return the **Derived Reply Subject** as usual.
+        - Without this, the request would be left waiting on a closed client: until its timeout, or forever with a **timeout** of 0.
     - Returns:
         - The **Derived Reply Subject**, which identifies this request (e.g. to **Cancel Request**).
             - Its **unique_id** makes it different for every request, even for requests sent to the same **request subject** with the same **received reply callback**.
@@ -134,7 +138,7 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
         - Call the **received reply callback** with the **Derived Reply Subject**, an empty **reply payload**, and **timed out** set to true.
             - The return value of the **received reply callback** is ignored.
     - **End of the wait**
-        - The wait for replies to a request ends exactly once, by whichever comes first: the **received reply callback** returning a true value, the timeout, **Cancel Request**, **Close**, a connection error, or a failure in Send Request (see **Upon failure**).
+        - The wait for replies to a request ends exactly once, by whichever comes first: the **received reply callback** returning a true value, the timeout, **Cancel Request**, **Close**, a connection error (including one that happened while Send Request had not returned yet, see **Closed meanwhile**), or a failure in Send Request (see **Upon failure**).
         - Ending the wait does the following:
             - Mark the wait as ended.
             - Unsubscribe from the **Derived Reply Subject**.

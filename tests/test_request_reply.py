@@ -328,6 +328,36 @@ async def test_connection_lost_while_sending_is_reported_once_as_an_error():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("closed_by", ["close", "connection error"])
+async def test_request_sent_while_the_client_is_closed_ends_once_sent(closed_by):
+    """Close (or a connection error) skips a request still being sent; if the
+    send then succeeds, send_request ends the wait itself, as close would have."""
+    node, port = await start_node()
+    requester = await connected_client(port)
+    replies = []
+    try:
+        publish = requester._client.publish
+
+        async def publish_then_close(subject, payload):
+            await publish(subject, payload)
+            if closed_by == "close":
+                await requester.close()
+            else:
+                await requester._on_connection_error(requester._client._client.connection, None)
+
+        requester._client.publish = publish_then_close
+        handle = await requester.send_request(
+            "a", b"", lambda *args: replies.append(args), timeout=0
+        )
+        assert replies == [(handle, b"", True)]
+        assert requester._requests == {}
+        assert subscribed_subjects(requester) == set()
+    finally:
+        await requester.close()
+        await node.close()
+
+
+@pytest.mark.asyncio
 async def test_failing_reply_callback_keeps_the_wait(caplog):
     node, port = await start_node()
     replier = await connected_client(port)

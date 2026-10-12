@@ -1,6 +1,6 @@
 # Test Cases
 
-All 310 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 312 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -162,7 +162,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A node that adds two links at once checks them one at a time.
   - Two nodes adding links at the same time can't close a cycle between them.
 
-## Request/reply (`test_request_reply.py`, 34 cases)
+## Request/reply (`test_request_reply.py`, 36 cases)
 - **Wire format and subjects (17 cases)**
   - A Request Message has exactly the byte layout in `data-format.md`, and survives encoding and decoding unchanged.
   - A Request Message with an empty payload, and one with binary content and a non-ASCII reply subject, survive encoding and decoding (2 cases).
@@ -184,6 +184,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Losing the connection ends every pending request with a timed-out call, then calls the connection error callback.
   - Sending a request when not connected raises an error, calls nothing and leaves nothing behind.
   - Losing the connection while a request is being sent is reported once, as an error from `send_request`; only requests already sent get a timed-out call.
+  - If the client is closed, or loses its connection, while a request is being sent but the send still succeeds, `send_request` ends that request with a timed-out call once it's sent, instead of leaving it waiting (2 cases).
 - **Callbacks**
   - A reply callback that raises an error is logged and the wait continues: the next reply is still delivered.
   - If the timeout fires while an async reply callback is still running, the timed-out call is made once and the running callback's later true return changes nothing.

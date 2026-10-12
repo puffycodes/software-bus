@@ -148,6 +148,7 @@ class _PendingRequest:
     subscription: Optional[PublishCallback] = None
     timer: Optional["asyncio.Future[None]"] = None
     sending: bool = True  # Send Request hasn't returned yet
+    closed_meanwhile: bool = False  # close/connection error skipped it while sending
     ended: bool = False
 
 
@@ -270,6 +271,9 @@ class RequestReplyClient:
             raise
         finally:
             request.sending = False
+        if request.closed_meanwhile and not request.ended:
+            # sent, but the client was closed meanwhile: end it as close would have
+            await self._end_without_reply(request)
         return reply_subject
 
     async def cancel_request(self, reply_subject: str) -> None:
@@ -311,7 +315,11 @@ class RequestReplyClient:
     async def _end_all_without_reply(self) -> None:
         # a request still being sent reports its failure through send_request instead
         for request in list(self._requests.values()):
-            if not request.ended and not request.sending:
+            if request.ended:
+                continue
+            if request.sending:
+                request.closed_meanwhile = True  # send_request ends it once sent
+            else:
                 await self._end_without_reply(request)
 
     async def _unsubscribe_quietly(self, subject: str, callback: PublishCallback) -> None:
