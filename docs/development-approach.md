@@ -10,8 +10,8 @@ How this project is developed and tested. For the commands to install and run th
 - The specs record the reasons behind rules that look like they could be simplified, such as never sending a publish back to where it came from, or deciding per neighbour when to unsubscribe. This stops someone "cleaning them up" later.
 
 ### Layered architecture built by composition
-- There are two layers: a base layer that floods data, and a pub/sub layer that routes it. Each layer has a Node class and a Client class.
-- The pub/sub classes contain a base-layer object and register callbacks on it, instead of subclassing it. Routing is swapped out through those callbacks, not hardcoded.
+- There are three layers: a base layer that floods data, a pub/sub layer that routes it, and a request/reply layer on top of pub/sub. The base and pub/sub layers each have a Node class and a Client class; request/reply has only a client, because nodes route its messages as ordinary publishes.
+- The pub/sub classes contain a base-layer object and register callbacks on it, instead of subclassing it. Routing is swapped out through those callbacks, not hardcoded. `RequestReplyClient` contains a `PubSubClient` in the same way.
 
 ### Shared internals instead of copies
 - Every failure goes through one place: `_handle_connection_error`.
@@ -64,7 +64,7 @@ How this project is developed and tested. For the commands to install and run th
 - Inputs are table-driven with `parametrize` where it fits.
 
 ### Regression tests for subtle fixes
-- Each concurrency safeguard has a test that fails without it, for example `_check_lock` and answering "unknown" while a check is running.
+- Each concurrency safeguard has a test that fails without it, for example `_check_lock` and answering "unknown" while a check is running, or, in request/reply, starting the timer before publishing and ending a request that was sent while the client was being closed.
 
 ### The test catalogue
 - [`test-cases.md`](test-cases.md) describes every automated test in plain English, grouped by file with a count for each.

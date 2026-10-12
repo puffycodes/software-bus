@@ -17,7 +17,7 @@ published subject against a subscribed one (see
 [`docs/design/subject-matcher.md`](docs/design/subject-matcher.md)), and
 [`docs/design/request-reply.md`](docs/design/request-reply.md) for the
 request/reply client built on publish/subscribe. The
-wire formats for both layers are specified in
+wire formats for all the layers are specified in
 [`docs/design/data-format.md`](docs/design/data-format.md), and the
 `bus_check` cycle-finding tool in
 [`docs/design/bus-check.md`](docs/design/bus-check.md).
@@ -318,6 +318,93 @@ only go between nodes.
 no length field of its own — it's simply everything left in the message
 after the subject, since the outer base layer framing already delimits the
 whole message.
+
+### `RequestReplyClient` — request/reply
+
+A request/reply client built on top of `PubSubClient`; there's no separate
+node class, since a `PubSubNode` routes requests and replies as ordinary
+publishes. An acceptor registers a callback for a **request subject**; a
+requester sends a request to that subject and gets the replies through its
+own callback. A request subject is a pub/sub subject with no `*` wildcard;
+one that's invalid or too long raises `ValueError`.
+
+```python
+import asyncio
+from software_bus import PubSubNode, RequestReplyClient
+
+async def main():
+    node = PubSubNode()
+    await node.accept_connection("127.0.0.1", 8787)
+
+    replier = RequestReplyClient()
+    await replier.connect("127.0.0.1", 8787)
+
+    async def on_request(reply_subject, payload):
+        await replier.send_reply(reply_subject, payload.upper())
+
+    await replier.accept_request("svc.echo", on_request)
+
+    requester = RequestReplyClient()
+    await requester.connect("127.0.0.1", 8787)
+
+    def on_reply(reply_subject, payload, timed_out):
+        print("timed out" if timed_out else f"reply: {payload!r}")
+        return True  # done: stop waiting for more replies
+
+    handle = await requester.send_request("svc.echo", b"hello", on_reply, timeout=10)
+
+    # ... run for a while ...
+
+    await requester.close()
+    await replier.close()
+    await node.close()
+
+asyncio.run(main())
+```
+
+How a request's wait for replies works:
+
+- Every acceptor on the subject gets each request, so there can be several
+  replies. The reply callback is called with `(reply_subject, payload,
+  timed_out)` for each one; returning a true value ends the wait.
+- `timeout` is in seconds (default 300; `0` waits forever). When it runs
+  out, the callback is called once more with an empty payload and
+  `timed_out=True`. `close()`, or losing the connection, ends every pending
+  request the same way.
+- `send_request` returns the request's reply subject, which
+  `cancel_request(handle)` takes to end the wait early, without calling the
+  callback.
+- The wait ends exactly once, whichever of these comes first; nothing is
+  delivered after it.
+- A client that accepts requests on a subject also receives its own
+  requests to it, and its reply can arrive before `send_request` returns.
+
+`stop_accept_request(subject, callback)` removes one acceptor, so keep a
+reference to the function you accepted with. Callbacks can be sync or
+async; one that raises is logged (a failing reply callback counts as
+returning false, so the wait continues). Callbacks run on the client's
+receive loop, so start long work as a separate task rather than awaiting it
+in the callback. See
+[`docs/design/request-reply.md`](docs/design/request-reply.md) for the full
+rules.
+
+#### Wire format
+
+Requests and replies are ordinary pub/sub publishes, so no new message type
+is needed; the subject says what a publish is:
+
+| Published to                         | Payload                                                                     |
+|--------------------------------------|-----------------------------------------------------------------------------|
+| `_request.<request_subject>`         | `reply_subject_length` (2 bytes, big-endian) \| `reply_subject` (UTF-8) \| `request_payload` (remaining bytes) |
+| `_reply.<request_subject>.<id>`      | the reply payload, as-is                                                    |
+
+`<id>` is 32 random letters and digits, new for every request. Subjects
+starting with `_request` or `_reply` are reserved for request/reply, so
+don't publish or subscribe to them directly. An acceptor ignores (and logs)
+a request whose reply subject isn't a reply subject for that request
+subject, and `send_reply` only publishes to a valid reply subject. See
+[`docs/design/data-format.md`](docs/design/data-format.md) for the
+canonical spec.
 
 ## Command-line tools
 
