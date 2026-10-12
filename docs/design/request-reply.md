@@ -56,10 +56,10 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
 - **Register Connection Error Callback** Provide a function to call when there is an error with the connection to the upstream node.
     - The default is the same as the Publish and Subscribe client's.
     - The class registers its own connection error callback on the Publish and Subscribe client. When the connection fails, it:
-        - Ends the wait of every request whose wait has not ended yet, and calls their **received reply callback**, the same way as **Close** does.
+        - Ends the wait of every request whose wait has not ended yet, except a request whose Send Request has not returned yet (see **Upon failure** and **Closed meanwhile** in **Send Request**), and calls their **received reply callback**, the same way as **Close** does.
         - Then calls the registered connection error callback.
 - **Close** Close the connection to the upstream node.
-    - Before closing the connection, for every request whose wait has not ended yet (see **End of the wait** in **Send Request**):
+    - Before closing the connection, for every request whose wait has not ended yet (see **End of the wait** in **Send Request**), except a request whose Send Request has not returned yet (see **Upon failure** and **Closed meanwhile** in **Send Request**):
         - End the wait.
         - Call its **received reply callback** with its **Derived Reply Subject**, an empty **reply payload**, and **timed out** set to true, the same way as **Upon timeout**.
             - The return value of the **received reply callback** is ignored.
