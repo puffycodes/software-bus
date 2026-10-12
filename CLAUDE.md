@@ -31,7 +31,7 @@ No linter/formatter is configured in this repo.
 
 ## Architecture
 
-This is a two-layer TCP bus, where each layer has a **Node** class (a relay/hub, accepts downstream + connects upstream) and a **Client** class (a leaf, connects to one node). The design docs in `docs/design/base-layer.md` and `docs/design/publish-subscribe.md` are the spec these classes implement, `docs/design/subject-matcher.md` is the spec for how a subscribed subject is matched against a published one, `docs/design/data-format.md` is the spec for the wire formats they encode/decode, and `docs/design/bus-check.md` is the spec for the `bus_check` script — when those docs change, `src/software_bus/base_layer.py` / `pubsub.py` / `subject_matcher.py` / `bus_check.py` (and the corresponding CLI scripts) need to be updated to match, and vice versa.
+This is a two-layer TCP bus, where each layer has a **Node** class (a relay/hub, accepts downstream + connects upstream) and a **Client** class (a leaf, connects to one node). The design docs in `docs/design/base-layer.md` and `docs/design/publish-subscribe.md` are the spec these classes implement, `docs/design/subject-matcher.md` is the spec for how a subscribed subject is matched against a published one, `docs/design/request-reply.md` is the spec for the request/reply client on top of pub/sub, `docs/design/data-format.md` is the spec for the wire formats they encode/decode, and `docs/design/bus-check.md` is the spec for the `bus_check` script — when those docs change, `src/software_bus/base_layer.py` / `pubsub.py` / `subject_matcher.py` / `request_reply.py` / `bus_check.py` (and the corresponding CLI scripts) need to be updated to match, and vice versa.
 
 ### Base layer (`base_layer.py`, `client.py`)
 
@@ -66,6 +66,15 @@ All `PubSubNode` sends go through the base layer's `_relay_to` (via `_send_to`),
 - An established connection is *pending* (`_pending`) from `_on_upstream_new_connection` — which marks it before its first `await`, so its relay loop can't process anything first — until `_activate`. Pending connections are left out of every broadcast target set via `_active()`; add that filter to any new "send to all connections" code. Subscriptions/publishes received on a pending (or still-draining, `_draining`) connection are held and replayed in order on acceptance.
 - The check is the spec's echo-style query: `_Query` combines replies (found wins at once; any unknown → unknown; a failed connection counts as not found); `_answer_now` holds the rule order for incoming queries. Forwarded queries wait for replies in a separate task (`_forward_query`) so the asking connection's relay loop isn't blocked, but are registered in `_queries` synchronously so a duplicate is spotted.
 - Two safeguards against links added at the same time, each covered by a test that fails without it: `_check_lock` (one check per node at a time) and answering `unknown` while `_checking`. Timings are the class attributes `check_timeout`, `max_check_attempts`, `check_retry_delay`; tests shrink them per instance.
+
+### Request/reply layer (`request_reply.py`)
+
+`RequestReplyClient` composes a `PubSubClient` (no node class: nodes route requests and replies as ordinary publishes). A request is a publish to `_request.<subject>` whose payload is a Request Message (reply subject + request payload, `encode_request`/`decode_request`); the requester first subscribes to its own `_reply.<subject>.<32-char id>`, and `send_request` returns that subject as the request's handle. Things to keep in mind:
+- Each pending request is a `_PendingRequest`; its wait ends exactly once, through `_end_wait` (reply callback returns true, timeout, `cancel_request`, `close`, connection error, or a failed send). Every path checks `ended` first; route any new way of ending a request through `_end_wait` too.
+- The timer is started *before* the request is published, because `PubSubClient.publish` delivers to the client's own callbacks: an acceptor on the same client can reply, and end the wait, before `send_request` returns.
+- While `send_request` hasn't returned (`sending`), `close` and connection errors skip that request, so a failed send is reported once, as the raised error.
+- `_end_wait` unsubscribes via `_unsubscribe_quietly`: `PubSubClient.unsubscribe` removes the callback locally *before* sending, so on a dead connection the local removal still happens and the send error is ignored.
+- Acceptors check the decoded reply subject (`_is_reply_subject_for`) and `send_reply` only publishes to a valid reply subject, so a request can't make acceptors publish to an ordinary subject.
 
 ### CLI scripts
 

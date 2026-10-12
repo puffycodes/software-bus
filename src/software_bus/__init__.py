@@ -1,6 +1,7 @@
 from .base_layer import BaseLayerNode, Connection
 from .client import BaseLayerClient
 from .pubsub import PublishMessage, PubSubClient, PubSubNode, SubscriptionMessage
+from .request_reply import RequestMessage, RequestReplyClient
 from .subject_matcher import ExactStringMatcher, StringPatternMatcher, SubjectMatcher
 
 __all__ = [
@@ -11,6 +12,8 @@ __all__ = [
     "PubSubClient",
     "SubscriptionMessage",
     "PublishMessage",
+    "RequestReplyClient",
+    "RequestMessage",
     "SubjectMatcher",
     "ExactStringMatcher",
     "StringPatternMatcher",

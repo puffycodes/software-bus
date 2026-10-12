@@ -1,6 +1,6 @@
 # Test Cases
 
-All 276 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 310 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -161,6 +161,34 @@ Some behaviour can't be tested automatically; those tests are described at the e
 - **Links added at the same time**
   - A node that adds two links at once checks them one at a time.
   - Two nodes adding links at the same time can't close a cycle between them.
+
+## Request/reply (`test_request_reply.py`, 34 cases)
+- **Wire format and subjects (17 cases)**
+  - A Request Message has exactly the byte layout in `data-format.md`, and survives encoding and decoding unchanged.
+  - A Request Message with an empty payload, and one with binary content and a non-ASCII reply subject, survive encoding and decoding (2 cases).
+  - Malformed Request Messages are rejected (4 cases): empty data, a cut-off reply subject length, a message shorter than its stated reply subject length, and a reply subject that isn't valid UTF-8.
+  - A reply subject over 65535 bytes is rejected.
+  - Derived subjects are `_request.<subject>` and `_reply.<subject>.<id>`, and each new ID is 32 letters and digits, different every time.
+  - Valid reply subjects are recognised (8 cases): `_reply.a.<id>` and `_reply.a.b.<id>` are valid; one with nothing between `_reply` and the ID, one starting `_request`, one with a 31-character ID, one with a non-alphanumeric character in its ID, one with a `*` part, and an ordinary subject are not.
+- **Parameter checks**
+  - A wildcard request subject, a derived subject over the length limit, a negative timeout and an invalid reply subject are all rejected with an error, leaving nothing subscribed or registered.
+  - The longest request subjects allowed (65526 bytes to accept requests, 65495 bytes to send one) are accepted.
+- **Requests and replies**
+  - A request reaches an acceptor in another client, the reply reaches the requester, and returning true ends the wait: the reply subscription is removed and no timed-out call follows.
+  - Every acceptor gets the request and replies, and a requester that never returns true gets every reply, then one timed-out call when the timeout ends the wait.
+  - A client that accepts requests gets its own request, and the reply reaches it before `send_request` returns; the timer, started before the request was published, is cancelled and never fires.
+  - A request nobody answers ends with one timed-out call (the reply subject, an empty payload, timed out) and its subscription removed.
+  - With a timeout of 0 a request waits until cancelled. Cancelling ends the wait without calling the callback, and later replies aren't delivered; cancelling again, or cancelling an unknown request, does nothing.
+- **Closing and connection failures**
+  - Closing the client ends every pending request with a timed-out call.
+  - Losing the connection ends every pending request with a timed-out call, then calls the connection error callback.
+  - Sending a request when not connected raises an error, calls nothing and leaves nothing behind.
+  - Losing the connection while a request is being sent is reported once, as an error from `send_request`; only requests already sent get a timed-out call.
+- **Callbacks**
+  - A reply callback that raises an error is logged and the wait continues: the next reply is still delivered.
+  - If the timeout fires while an async reply callback is still running, the timed-out call is made once and the running callback's later true return changes nothing.
+  - Accepting with the same subject and callback twice still calls it once per request. A failing request callback is logged and doesn't stop another acceptor on the same client. Stopping one callback leaves the others accepting, stopping it again does nothing, and stopping the last one removes the subscription.
+  - An acceptor logs and ignores bad requests (3 cases): a malformed Request Message, one whose reply subject isn't a reply subject, and one whose reply subject belongs to a different request subject.
 
 ## Shared script helpers (`test_cli.py`, 28 cases)
 - **Options and parsing**

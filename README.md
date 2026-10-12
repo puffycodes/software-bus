@@ -14,7 +14,9 @@ design and routing rules, and
 [`docs/design/publish-subscribe.md`](docs/design/publish-subscribe.md) for
 the publish/subscribe layer built on top of it, including how it matches a
 published subject against a subscribed one (see
-[`docs/design/subject-matcher.md`](docs/design/subject-matcher.md)). The
+[`docs/design/subject-matcher.md`](docs/design/subject-matcher.md)), and
+[`docs/design/request-reply.md`](docs/design/request-reply.md) for the
+request/reply client built on publish/subscribe. The
 wire formats for both layers are specified in
 [`docs/design/data-format.md`](docs/design/data-format.md), and the
 `bus_check` cycle-finding tool in
@@ -470,6 +472,7 @@ src/software_bus/
     base_layer.py   BaseLayerNode, Connection
     client.py       BaseLayerClient
     pubsub.py       PubSubNode, PubSubClient
+    request_reply.py  RequestReplyClient
     subject_matcher.py  SubjectMatcher, ExactStringMatcher, StringPatternMatcher
     bl_server.py    bl_server CLI
     bl_client.py    bl_client CLI

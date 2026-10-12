@@ -5,7 +5,7 @@ How this project is developed and tested. For the commands to install and run th
 ## Development approach
 
 ### Spec-first design docs
-- `docs/design/` holds one spec per area: `base-layer.md`, `publish-subscribe.md`, `subject-matcher.md`, `data-format.md` and `bus-check.md`. Each maps to one module.
+- `docs/design/` holds one spec per area: `base-layer.md`, `publish-subscribe.md`, `subject-matcher.md`, `request-reply.md`, `data-format.md` and `bus-check.md`. Each maps to one module.
 - The specs and the code are kept in step in both directions. A change to the spec means a matching change to the code, and the reverse. A single change usually updates the spec, the code, the tests and `test-cases.md` together.
 - The specs record the reasons behind rules that look like they could be simplified, such as never sending a publish back to where it came from, or deciding per neighbour when to unsubscribe. This stops someone "cleaning them up" later.
 

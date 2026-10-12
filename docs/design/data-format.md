@@ -90,3 +90,28 @@ A pub/sub payload is malformed if any of the following hold:
 - a Reachability Reply Message's `result` is not `0x00`, `0x01` or `0x02`.
 
 How a receiver handles a malformed message is defined in `publish-subscribe.md`.
+
+## Request and Reply Wire Format
+
+The request/reply layer defines the contents of a Publish Message's `payload`. It adds no message type tag: what a payload means is given by the subject it is published to (see `request-reply.md`).
+
+### Request Message
+
+Published to a Derived Request Subject.
+
+```
+<reply_subject_length: 2 bytes, big-endian><reply_subject: reply_subject_length bytes, utf-8><request_payload: remaining bytes>
+```
+
+- `reply_subject` is the Derived Reply Subject the requestor listens on, encoded the same way as `subject` in the Subscription Message.
+- `request_payload` is every byte after the reply subject, taken as-is with no further framing. It can be empty.
+
+### Reply Message
+
+Published to a reply subject. It has no framing of its own: the Publish Message's `payload` is the reply payload, taken as-is. It can be empty.
+
+### Malformed Request Messages
+
+A Request Message is malformed if it is shorter than 2 bytes, it is shorter than its `reply_subject_length` says, or the reply subject is not valid UTF-8.
+
+How a receiver handles a malformed Request Message is defined in `request-reply.md`.
