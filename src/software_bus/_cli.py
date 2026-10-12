@@ -46,6 +46,17 @@ def parse_subject_list(value: str) -> List[str]:
     return subjects
 
 
+def parse_timeout(value: str) -> float:
+    """Parse a timeout in seconds: a number >= 0 (0 means wait forever)."""
+    try:
+        seconds = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a number of seconds, got {value!r}") from None
+    if not seconds >= 0:  # also rejects nan
+        raise argparse.ArgumentTypeError(f"expected a timeout >= 0, got {value!r}")
+    return seconds
+
+
 def add_debug_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--debug",
@@ -176,8 +187,23 @@ class ConnectionLost(ScriptError):
         self.error = error
 
 
+class InvalidSubject(ScriptError):
+    """A subject given to a script can't be used (e.g. it contains a wild card)."""
+
+    def __init__(self, subject: str, error: ValueError) -> None:
+        super().__init__(f"invalid subject {subject!r} ({error})")
+        self.error = error
+
+
+class NoReply(ScriptError):
+    """A request's wait ended by its timeout without any reply."""
+
+    def __init__(self, subject: str) -> None:
+        super().__init__(f"no reply to {subject!r} before the timeout")
+
+
 async def connect(client: Any, host: str, port: int) -> None:
-    """Connect `client` (a BaseLayerClient or PubSubClient), raising
+    """Connect `client` (a BaseLayerClient, PubSubClient or RequestReplyClient), raising
     ConnectFailed instead of a bare OSError if the server can't be reached."""
     try:
         await client.connect(host, port)
@@ -187,7 +213,7 @@ async def connect(client: Any, host: str, port: int) -> None:
 
 async def run_until_connection_lost(client: Any, body: Awaitable[None]) -> None:
     """Run `body`, stopping it and raising ConnectionLost as soon as `client`
-    (a BaseLayerClient or PubSubClient) reports its connection lost.
+    (a BaseLayerClient, PubSubClient or RequestReplyClient) reports its connection lost.
 
     The loss may happen at any point in `body`, e.g. partway through a
     `repeat` of sends, not only while it idles.

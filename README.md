@@ -514,6 +514,40 @@ connect, or if the connection is lost before it has finished publishing.
 If installed (`pip install -e .`), these are also available as the
 `ps_server`, `ps_subscribe`, and `ps_publish` commands directly.
 
+`rr_reply` connects to a `ps_server`, accepts requests on one or more
+required, comma-separated request subjects (`--accept-request`; no `*`
+wildcards), prints `request_subject: request_payload` for each request it
+receives (with a time stamp by default; `--time-stamp false` to omit it),
+and replies with `request_subject: reply_message` (`--reply-message`,
+required):
+
+```
+python -m software_bus.rr_reply --upstream 127.0.0.1:8787 --accept-request "svc.echo,svc.time" --reply-message "pong"
+```
+
+`rr_request` connects to a `ps_server`, sends one request to
+`--request-subject` (required) with `--request-message` (default: empty),
+and prints `request_subject: reply_payload` for each reply:
+
+```
+$ python -m software_bus.rr_request --upstream 127.0.0.1:8787 --request-subject svc.echo --request-message ping --continue-waiting false
+[2026-10-12T16:51:13.801415] svc.echo: svc.echo: pong
+```
+
+- `--continue-waiting true` (the default) keeps printing replies until
+  `--timeout` seconds (default 300; `0` waits forever, until Ctrl-C), then
+  prints `request_subject: timed out`. `--continue-waiting false` exits
+  after the first reply.
+- It exits with status 0 if it got at least one reply, and with status 1
+  (`error: no reply to 'svc.echo' before the timeout`) if the timeout ends
+  the wait with none.
+
+Both exit with status 1 and an error message on stderr for an invalid
+request subject (checked before connecting), if they can't connect to the
+server, or if the connection is lost; a lost connection is never reported
+as a timeout. If installed, they're also available as the `rr_reply` and
+`rr_request` commands.
+
 ### Checking for cycles: `bus_check`
 
 `bus_check` finds cycles among the `bl_server`/`ps_server` nodes running on
@@ -571,6 +605,8 @@ src/software_bus/
     ps_server.py    ps_server CLI
     ps_subscribe.py ps_subscribe CLI
     ps_publish.py   ps_publish CLI
+    rr_reply.py     rr_reply CLI
+    rr_request.py   rr_request CLI
     bus_check.py    bus_check CLI (finds cycles among local nodes)
     _cli.py         helpers shared by the CLI scripts
 tests/          pytest test suite

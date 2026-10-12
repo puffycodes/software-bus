@@ -1,6 +1,6 @@
 # Test Cases
 
-All 314 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 345 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -193,12 +193,14 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Accepting with the same subject and callback twice still calls it once per request. A failing request callback is logged and doesn't stop another acceptor on the same client. Stopping one callback leaves the others accepting, stopping it again does nothing, and stopping the last one removes the subscription.
   - An acceptor logs and ignores bad requests (3 cases): a malformed Request Message, one whose reply subject isn't a reply subject, and one whose reply subject belongs to a different request subject.
 
-## Shared script helpers (`test_cli.py`, 28 cases)
+## Shared script helpers (`test_cli.py`, 39 cases)
 - **Options and parsing**
   - `true`/`false` options accept any capitalisation (3 cases).
   - Other values like `yes`, `1` or an empty string are rejected (3 cases).
-  - Every script accepts `--debug`, and it defaults to false (6 scripts).
-  - Every client script's `--upstream` defaults to 127.0.0.1:8787 (3 scripts).
+  - A timeout accepts 0 or more seconds, including fractions (3 cases).
+  - A negative timeout, a non-number, an empty value and `nan` are rejected (4 cases).
+  - Every script accepts `--debug`, and it defaults to false (8 scripts).
+  - Every client script's `--upstream` defaults to 127.0.0.1:8787 (5 scripts).
   - The server help text names the right server.
 - **Runtime helpers**
   - Connecting to an unreachable server raises a clear "cannot connect" error.
@@ -263,6 +265,26 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - It publishes the requested number of times.
   - An unreachable server raises "cannot connect".
   - The server going away partway through the repeats raises "connection lost".
+
+## Request/reply scripts (`test_rr_scripts.py`, 20 cases)
+- **`rr_reply`**
+  - `--accept-request` and `--reply-message` are both required.
+  - Comma-separated request subjects are parsed, and the time stamp is on by default.
+  - It prints each request as `request_subject: payload` (an empty payload too) and replies with `request_subject: reply_message`, on each subject it accepts.
+  - With the time stamp on, each printed request starts with it.
+  - The server going away raises "connection lost".
+- **`rr_request`**
+  - `--request-subject` is required.
+  - The defaults are: an empty message, a 300-second timeout, continue waiting, and a time stamp.
+  - A negative or non-numeric `--timeout` is rejected (2 cases).
+  - With `--continue-waiting false` it prints the first reply only and returns straight away, without waiting for the timeout.
+  - With `--continue-waiting true` it prints every reply, then `request_subject: timed out` at the timeout, and returns normally because replies arrived.
+  - With no reply, it prints `request_subject: timed out` and raises "no reply" (exit status 1).
+  - The server going away raises "connection lost", and "timed out" is not printed.
+- **Both**
+  - `rr_request` and `rr_reply` work together: the request is printed by `rr_reply` and its reply by `rr_request`.
+  - An unreachable server raises "cannot connect" (2 cases).
+  - An invalid request subject, with a wild card or too long, raises "invalid subject" before connecting (4 cases).
 
 ## `bus_check` (`test_bus_check.py`, 43 cases)
 - **Recognising node processes (11 cases)**

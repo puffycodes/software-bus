@@ -19,6 +19,8 @@ bl_client = "software_bus.bl_client:main"
 ps_server = "software_bus.ps_server:main"
 ps_subscribe = "software_bus.ps_subscribe:main"
 ps_publish = "software_bus.ps_publish:main"
+rr_reply = "software_bus.rr_reply:main"
+rr_request = "software_bus.rr_request:main"
 bus_check = "software_bus.bus_check:main"
 
 [tool.setuptools.packages.find]

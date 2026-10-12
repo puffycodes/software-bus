@@ -144,6 +144,16 @@ def _check_request_subject(request_subject: str, longest_derived: str) -> None:
         )
 
 
+def check_request_subject(request_subject: str, sending: bool = False) -> None:
+    """Raise ValueError if `request_subject` fails the Parameter Checks for
+    accepting requests on it or, with `sending`, for sending a request to it."""
+    if sending:
+        longest = derived_reply_subject(request_subject, "0" * UNIQUE_ID_LENGTH)
+    else:
+        longest = derived_request_subject(request_subject)
+    _check_request_subject(request_subject, longest)
+
+
 async def _call(callback: Callable[..., Any], *args: Any) -> Any:
     """Call a sync or async callback and return its result."""
     result = callback(*args)

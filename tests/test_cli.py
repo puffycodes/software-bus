@@ -4,13 +4,23 @@ import re
 
 import pytest
 
-from software_bus import bl_client, bl_server, bus_check, ps_publish, ps_server, ps_subscribe
+from software_bus import (
+    bl_client,
+    bl_server,
+    bus_check,
+    ps_publish,
+    ps_server,
+    ps_subscribe,
+    rr_reply,
+    rr_request,
+)
 from software_bus._cli import (
     ConnectFailed,
     ConnectionLost,
     build_server_arg_parser,
     connect,
     parse_bool,
+    parse_timeout,
     print_received,
     repeat,
     run_until_connection_lost,
@@ -28,6 +38,8 @@ _SCRIPT_ARGV = [
     (bl_client, []),
     (ps_subscribe, ["--subject", "a.b"]),
     (ps_publish, ["--subject", "a.b", "--message", "hi"]),
+    (rr_reply, ["--accept-request", "svc", "--reply-message", "ok"]),
+    (rr_request, ["--request-subject", "svc"]),
 ]
 
 
@@ -40,6 +52,17 @@ def test_parse_bool_accepts_true_and_false_case_insensitively(value, expected):
 def test_parse_bool_rejects_other_values(value):
     with pytest.raises(argparse.ArgumentTypeError):
         parse_bool(value)
+
+
+@pytest.mark.parametrize("value, expected", [("0", 0.0), ("1.5", 1.5), ("300", 300.0)])
+def test_parse_timeout_accepts_numbers_of_seconds_from_zero(value, expected):
+    assert parse_timeout(value) == expected
+
+
+@pytest.mark.parametrize("value", ["-1", "abc", "", "nan"])
+def test_parse_timeout_rejects_negative_or_non_numbers(value):
+    with pytest.raises(argparse.ArgumentTypeError):
+        parse_timeout(value)
 
 
 @pytest.mark.parametrize("script, argv", [*_SCRIPT_ARGV, (bus_check, [])])
