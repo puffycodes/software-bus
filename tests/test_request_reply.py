@@ -358,6 +358,33 @@ async def test_request_sent_while_the_client_is_closed_ends_once_sent(closed_by)
 
 
 @pytest.mark.asyncio
+async def test_accept_request_when_not_connected_raises_and_leaves_nothing():
+    client = RequestReplyClient()
+    with pytest.raises(RuntimeError):
+        await client.accept_request("svc", lambda *args: None)
+    assert client._acceptors == {}
+    assert subscribed_subjects(client) == set()
+
+
+@pytest.mark.asyncio
+async def test_stop_accept_request_after_connection_lost_raises_but_forgets_the_acceptor():
+    node, port = await start_node()
+    replier = await connected_client(port)
+    callback = lambda *args: None
+    try:
+        await replier.accept_request("svc", callback)
+        await node.close()
+        await asyncio.sleep(0.1)  # the client notices the connection is gone
+        with pytest.raises(RuntimeError):
+            await replier.stop_accept_request("svc", callback)
+        assert replier._acceptors == {}
+        assert subscribed_subjects(replier) == set()
+    finally:
+        await replier.close()
+        await node.close()
+
+
+@pytest.mark.asyncio
 async def test_failing_reply_callback_keeps_the_wait(caplog):
     node, port = await start_node()
     replier = await connected_client(port)
