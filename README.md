@@ -207,7 +207,8 @@ A subject subscribed to (whether by a `PubSubClient` or received as a
 subscription message by a `PubSubNode`) may be a literal subject or a
 wildcard pattern, e.g. `"a.*"` matches any published subject with two
 `.`-separated parts whose first part is `a`. A published subject itself is
-always literal. Matching is done by `StringPatternMatcher`
+always literal: `publish` raises `ValueError` for a subject with a `*` part
+(e.g. `"a.*"`), sending nothing. Matching is done by `StringPatternMatcher`
 (`software_bus.subject_matcher`) — see
 [`docs/design/subject-matcher.md`](docs/design/subject-matcher.md) for the
 full matching rules.
@@ -244,9 +245,12 @@ The callback is called with `(matched_subject, actual_subject, payload)` —
 `actual_subject` is the literal subject the publisher used; a
 subject can have multiple callbacks registered against it, and the upstream
 node is only told about the subscription once, for the first callback
-registered on a given subject. `unsubscribe(subject, callback)` removes one
-callback, only telling the upstream node once no callback remains for that
-subject — so keep a reference to the function you subscribed with:
+registered on a given subject. Subscribing the same function to the same
+subject twice registers it twice, so it's called twice per publish.
+`unsubscribe(subject, callback)` removes one registration of that callback
+(so a function subscribed twice needs two unsubscribes), only telling the
+upstream node once no callback remains for that subject — so keep a
+reference to the function you subscribed with:
 
 ```python
 def on_publish(matched, actual, payload):
@@ -498,7 +502,8 @@ python -m software_bus.ps_subscribe --upstream 127.0.0.1:8787 --subject "a.b,a.c
 ```
 
 Like `bl_client`, it exits with status 1 and an error message on stderr if
-it can't connect to the server or the connection is lost.
+it can't connect to the server or the connection is lost. A subject over
+65535 bytes is reported the same way, before connecting.
 
 `ps_publish` connects to a `ps_server` and publishes a message under a
 subject, `--repeat-count`/`--repeat-interval` times like `bl_client`.
@@ -511,7 +516,9 @@ python -m software_bus.ps_publish --upstream 127.0.0.1:8787 --subject "a.b" --me
 ```
 
 It too exits with status 1 and an error message on stderr if it can't
-connect, or if the connection is lost before it has finished publishing.
+connect, or if the connection is lost before it has finished publishing. A
+subject with a `*` wildcard part, or over 65535 bytes, is reported the same
+way, before connecting.
 
 If installed (`pip install -e .`), these are also available as the
 `ps_server`, `ps_subscribe`, and `ps_publish` commands directly.

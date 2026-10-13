@@ -45,7 +45,7 @@ Shared internals to reuse rather than re-inline: `_start_connection` (wraps a ne
 
 `BaseLayerClient` is the leaf side: connects once, sends, and dispatches received data to a single registered callback. Its failures mirror the node's single path: `_receive_loop` and `send` both go through the client's own `_handle_connection_error` (forget `self.connection`, call the connection error callback, close), and `send` re-raises after reporting. A `CancelledError` in `_receive_loop` means `close()` was called and is deliberately *not* reported. `PubSubClient.register_connection_error_callback` just forwards to it.
 
-Subjects are capped at 65535 UTF-8 bytes by the 2-byte length field; `encode_message` raises `ValueError` beyond that, and `PubSubClient.subscribe` encodes *before* registering the callback so a rejected subject leaves no state behind.
+Subjects are capped at 65535 UTF-8 bytes by the 2-byte length field; `encode_message` raises `ValueError` beyond that (via `check_subject`), and `PubSubClient.subscribe` encodes *before* registering the callback so a rejected subject leaves no state behind. `PubSubClient.publish` checks first with `check_publish_subject`, which also rejects a whole `*` part (a published subject is always literal); nodes don't check this, and match a `*` in a published subject as a plain character. `PubSubClient.unsubscribe` removes one registration of a callback, mirroring `subscribe`, which appends one per call.
 
 ### Publish/Subscribe layer (`pubsub.py`)
 
