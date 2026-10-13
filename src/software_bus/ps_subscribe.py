@@ -6,6 +6,7 @@ import asyncio
 from typing import List, Optional
 
 from ._cli import (
+    InvalidSubject,
     add_debug_argument,
     add_upstream_argument,
     configure_logging,
@@ -16,7 +17,7 @@ from ._cli import (
     run_until_connection_lost,
     run_until_interrupted,
 )
-from .pubsub import PubSubClient
+from .pubsub import PubSubClient, check_subject
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -48,6 +49,13 @@ async def run(
     subjects: List[str],
     time_stamp: bool = True,
 ) -> None:
+    # checked before connecting: an invalid subject is reported even with no server
+    for subject in subjects:
+        try:
+            check_subject(subject)
+        except ValueError as exc:
+            raise InvalidSubject(subject, exc) from exc
+
     def on_publish(matched_subject: str, actual_subject: str, payload: bytes) -> None:
         print_received(
             f"{matched_subject} {actual_subject}: {payload.decode(errors='replace')}",

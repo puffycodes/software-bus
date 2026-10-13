@@ -116,6 +116,13 @@ def _check_id(value: bytes, name: str) -> bytes:
     return bytes(value)
 
 
+def check_subject(subject: str) -> None:
+    """Raise ValueError if `subject` is too long to encode (over 65535 UTF-8 bytes)."""
+    length = len(subject.encode("utf-8"))
+    if length > _MAX_SUBJECT_LENGTH:
+        raise ValueError(f"subject is {length} bytes, over the {_MAX_SUBJECT_LENGTH}-byte limit")
+
+
 def encode_message(message: Message) -> bytes:
     if isinstance(message, HelloMessage):
         return bytes([_MSG_HELLO]) + _check_id(message.node_id, "node_id")
@@ -133,11 +140,8 @@ def encode_message(message: Message) -> bytes:
         )
     if not isinstance(message, (SubscriptionMessage, PublishMessage)):
         raise TypeError(f"unsupported message type: {type(message)!r}")
+    check_subject(message.subject)
     subject_bytes = message.subject.encode("utf-8")
-    if len(subject_bytes) > _MAX_SUBJECT_LENGTH:
-        raise ValueError(
-            f"subject is {len(subject_bytes)} bytes, over the {_MAX_SUBJECT_LENGTH}-byte limit"
-        )
     subject_header = len(subject_bytes).to_bytes(_SUBJECT_LENGTH_SIZE, "big") + subject_bytes
     if isinstance(message, SubscriptionMessage):
         state = b"\x01" if message.subscribe else b"\x00"

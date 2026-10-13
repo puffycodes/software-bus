@@ -5,6 +5,7 @@ import argparse
 from typing import List, Optional
 
 from ._cli import (
+    InvalidSubject,
     add_debug_argument,
     add_repeat_arguments,
     add_upstream_argument,
@@ -14,7 +15,7 @@ from ._cli import (
     run_until_connection_lost,
     run_until_interrupted,
 )
-from .pubsub import PubSubClient
+from .pubsub import PubSubClient, check_subject
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -45,6 +46,12 @@ async def run(
     repeat_count: int = 1,
     repeat_interval: float = 1.0,
 ) -> None:
+    # checked before connecting: an invalid subject is reported even with no server
+    try:
+        check_subject(subject)
+    except ValueError as exc:
+        raise InvalidSubject(subject, exc) from exc
+
     client = PubSubClient()
 
     async def body() -> None:

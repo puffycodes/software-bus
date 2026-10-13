@@ -206,7 +206,10 @@ A node that is checking therefore answers every query it receives with unknown:
     - parameter --subject "<subject_1>,<subject_2>,..." (required)
     - print the matched subject, the actual subject and the payload received with the publish message with an optional time stamp
         - parameter --time-stamp true|false (default: true)
-- Exit with an error message and exit status 1 if it cannot connect to the server, or if the connection to the server is lost.
+- Exit with an error message and exit status 1 if:
+    - a subject is too long to encode (see `data-format.md`), checked before connecting,
+    - it cannot connect to the server, or
+    - the connection to the server is lost.
 - Print logging information
     - parameter --debug true|false (default: false)
 
@@ -220,6 +223,9 @@ A node that is checking therefore answers every query it receives with unknown:
     - parameter --message "message to publish" (required)
     - parameter --repeat-count n (default: 1)
     - parameter --repeat-interval t (default: 1 sec)
-- Exit with an error message and exit status 1 if it cannot connect to the server, or if the connection to the server is lost while still publishing.
+- Exit with an error message and exit status 1 if:
+    - the subject is too long to encode (see `data-format.md`), checked before connecting,
+    - it cannot connect to the server, or
+    - the connection to the server is lost while still publishing.
 - Print logging information
     - parameter --debug true|false (default: false)

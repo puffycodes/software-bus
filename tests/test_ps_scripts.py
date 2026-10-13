@@ -4,7 +4,13 @@ import asyncio
 import pytest
 
 from software_bus import ps_publish, ps_server, ps_subscribe
-from software_bus._cli import parse_subject_list, ConnectFailed, ConnectionLost, ListenFailed
+from software_bus._cli import (
+    parse_subject_list,
+    ConnectFailed,
+    ConnectionLost,
+    InvalidSubject,
+    ListenFailed,
+)
 from software_bus.base_layer import DEFAULT_HOST, DEFAULT_PORT
 from software_bus.pubsub import PubSubClient, PubSubNode, SubscriptionMessage, decode_message, encode_message
 
@@ -239,6 +245,22 @@ async def test_ps_publish_run_raises_connect_failed_when_server_unreachable():
         await asyncio.wait_for(
             ps_publish.run("127.0.0.1", free_port(), "a.b", "hi"), timeout=5
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "run",
+    [
+        lambda port: ps_subscribe.run("127.0.0.1", port, ["a.b", "x" * 65536]),
+        lambda port: ps_subscribe.run("127.0.0.1", port, ["é" * 32768]),
+        lambda port: ps_publish.run("127.0.0.1", port, "x" * 65536, "hi"),
+    ],
+    ids=["ps_subscribe too long", "ps_subscribe too long in utf-8", "ps_publish too long"],
+)
+async def test_ps_run_raises_invalid_subject_before_connecting(run):
+    # no server on this port: the subject is rejected first
+    with pytest.raises(InvalidSubject):
+        await asyncio.wait_for(run(free_port()), timeout=5)
 
 
 @pytest.mark.asyncio

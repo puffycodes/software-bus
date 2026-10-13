@@ -1,6 +1,6 @@
 # Test Cases
 
-All 348 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 351 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -242,7 +242,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - The server going away raises "connection lost".
   - It stops repeating when the server goes away.
 
-## Pub/sub scripts (`test_ps_scripts.py`, 20 cases)
+## Pub/sub scripts (`test_ps_scripts.py`, 23 cases)
 - **Subject list parsing**
   - A comma-separated list is split and its whitespace trimmed.
   - An empty list is rejected.
@@ -261,12 +261,14 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - With no subjects, it subscribes to nothing.
   - An unreachable server raises "cannot connect".
   - The server going away raises "connection lost".
+  - A subject over 65535 bytes raises "invalid subject" before connecting, also when only one of several subjects is too long, and when it is too long only once encoded as UTF-8 (2 cases).
 - **`ps_publish`**
   - `--subject` and `--message` are both required.
   - Custom options are parsed.
   - It publishes the requested number of times.
   - An unreachable server raises "cannot connect".
   - The server going away partway through the repeats raises "connection lost".
+  - A subject over 65535 bytes raises "invalid subject" before connecting.
 
 ## Request/reply scripts (`test_rr_scripts.py`, 21 cases)
 - **`rr_reply`**
