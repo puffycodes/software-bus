@@ -1036,6 +1036,61 @@ async def test_subscribe_with_too_long_subject_raises_and_registers_nothing():
 
 
 @pytest.mark.asyncio
+async def test_subscribe_while_not_connected_raises_and_registers_nothing():
+    server, connected = await accept_one_peer_connection()
+    client = PubSubClient()
+
+    def callback(matched, actual, payload):
+        pass
+
+    try:
+        with pytest.raises(RuntimeError, match="not connected"):
+            await client.subscribe("a.b", callback)
+        assert client._subscribe_callbacks == {}
+
+        # without the rollback, this subscribe wouldn't be the first and would send nothing
+        await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+        peer = await asyncio.wait_for(connected, timeout=1)
+        await client.subscribe("a.b", callback)
+        sent = await asyncio.wait_for(peer.receive(), timeout=1)
+        assert decode_message(sent) == SubscriptionMessage("a.b", subscribe=True)
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_subscribe_whose_send_fails_raises_and_keeps_other_subjects(monkeypatch):
+    server, connected = await accept_one_peer_connection()
+    client = PubSubClient()
+    errors = []
+    client.register_connection_error_callback(lambda connection, error: errors.append(error))
+
+    def callback(matched, actual, payload):
+        pass
+
+    try:
+        await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+        await asyncio.wait_for(connected, timeout=1)
+        await client.subscribe("x.y", callback)
+
+        async def failing_send(data):
+            raise ConnectionResetError("send failed")
+
+        monkeypatch.setattr(client._client.connection, "send", failing_send)
+        with pytest.raises(ConnectionResetError):
+            await client.subscribe("a.b", callback)
+
+        assert list(client._subscribe_callbacks) == ["x.y"]  # only the failed one is undone
+        assert len(errors) == 1  # the send failure is also reported as a connection error
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "subject", ["a.*", "*", "x" * 65536], ids=["wild card part", "only a wild card", "too long"]
 )

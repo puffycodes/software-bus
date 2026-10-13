@@ -160,6 +160,8 @@ A node that is checking therefore answers every query it receives with unknown:
         - A subject can have multiple subscription callbacks.
         - Subscribing the same callback to the same subject again registers it again: it is then called once per registration for every matching publish.
     - If this is the first subscription to the given subject, send a subscription message to the upstream node to subscribe the given subject.
+        - If it cannot be sent (e.g. the client is not connected, or the connection fails while sending), remove the subscription callback just registered, report the error, and change nothing else.
+        - Otherwise the subject would keep a callback that the upstream node does not know about, and a later Subscribe to the same subject would not be the first, so it would never tell the node either.
 - **Unsubscribe**
     - Parameters:
         - subject to unsubscribe from

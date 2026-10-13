@@ -750,7 +750,8 @@ class PubSubClient:
         `callback` is called with (matched_subject, actual_subject, payload).
         A subject can have multiple callbacks registered against it; the
         upstream node is only told about the subscription once, for the
-        first callback registered against a given subject.
+        first callback registered against a given subject. If that fails
+        (e.g. not connected), the error is raised and nothing is left registered.
         """
         # encode first: a subject too long to send must not leave a callback registered
         wire_message = encode_message(SubscriptionMessage(subject, subscribe=True))
@@ -758,7 +759,13 @@ class PubSubClient:
         is_first_subscription = not callbacks
         callbacks.append(callback)
         if is_first_subscription:
-            await self._client.send(wire_message)
+            try:
+                await self._client.send(wire_message)
+            except BaseException:
+                # the node wasn't told: a callback left registered would make every
+                # later subscribe to this subject skip telling it too
+                self._remove_registration(subject, callback)
+                raise
 
     async def unsubscribe(self, subject: str, callback: PublishCallback) -> None:
         """Remove one registration of `callback` from `subject`.
@@ -767,16 +774,25 @@ class PubSubClient:
         upstream node is only told about the unsubscription once no callback
         remains registered against `subject`.
         """
+        if self._remove_registration(subject, callback):
+            await self._client.send(encode_message(SubscriptionMessage(subject, subscribe=False)))
+
+    def _remove_registration(self, subject: str, callback: PublishCallback) -> bool:
+        """Remove one registration of `callback` from `subject`, if there is one.
+
+        Returns True if it was the subject's last callback (the subject is then dropped).
+        """
         callbacks = self._subscribe_callbacks.get(subject)
         if callbacks is None:
-            return
+            return False
         index = next((i for i, c in enumerate(callbacks) if c is callback), None)
         if index is None:
-            return
+            return False
         del callbacks[index]
-        if not callbacks:
-            self._subscribe_callbacks.pop(subject, None)
-            await self._client.send(encode_message(SubscriptionMessage(subject, subscribe=False)))
+        if callbacks:
+            return False
+        self._subscribe_callbacks.pop(subject, None)
+        return True
 
     async def publish(self, subject: str, payload: bytes) -> None:
         """Publish `payload` under `subject`.
