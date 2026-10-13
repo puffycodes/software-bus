@@ -1,6 +1,6 @@
 # Test Cases
 
-All 347 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 348 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -70,7 +70,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Closing a client that never connected, or closing it twice, does no harm.
   - A failed send is reported to the connection error callback and also raised to the caller.
 
-## Publish/subscribe (`test_pubsub.py`, 53 cases)
+## Publish/subscribe (`test_pubsub.py`, 54 cases)
 - **Wire format (21 cases)**
   - Subscription and publish messages have exactly the byte layout in `data-format.md`, including a subject's length counted in UTF-8 bytes.
   - Bytes after a subscription's subject are ignored.
@@ -85,6 +85,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Subscribing with a subject that's too long raises an error and leaves nothing registered.
   - Only the first callback on a subject sends a subscription to the node.
   - Only removing the last callback on a subject sends an unsubscription.
+  - A callback subscribed twice to the same subject is called twice per publish, and one unsubscribe removes only one of its registrations: it is then called once, and the second unsubscribe sends the unsubscription.
   - Unsubscribing from a subject the client never subscribed to, or with a callback it never registered, sends nothing and keeps the existing callbacks.
   - Every callback on the same client and subject is called for a publish.
   - A subscription callback can be an async function.

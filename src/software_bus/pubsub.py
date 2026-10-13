@@ -721,15 +721,19 @@ class PubSubClient:
             await self._client.send(wire_message)
 
     async def unsubscribe(self, subject: str, callback: PublishCallback) -> None:
-        """Remove `callback` from `subject`.
+        """Remove one registration of `callback` from `subject`.
 
-        The upstream node is only told about the unsubscription once no
-        callback remains registered against `subject`.
+        A callback subscribed more than once needs as many unsubscribes. The
+        upstream node is only told about the unsubscription once no callback
+        remains registered against `subject`.
         """
         callbacks = self._subscribe_callbacks.get(subject)
         if callbacks is None:
             return
-        callbacks[:] = [c for c in callbacks if c is not callback]
+        index = next((i for i, c in enumerate(callbacks) if c is callback), None)
+        if index is None:
+            return
+        del callbacks[index]
         if not callbacks:
             self._subscribe_callbacks.pop(subject, None)
             await self._client.send(encode_message(SubscriptionMessage(subject, subscribe=False)))

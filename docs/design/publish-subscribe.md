@@ -157,12 +157,15 @@ A node that is checking therefore answers every query it receives with unknown:
     - If the subject is too long to encode (see `data-format.md`), report an error and change nothing.
     - Register the subscription callback under the given subject.
         - A subject can have multiple subscription callbacks.
+        - Subscribing the same callback to the same subject again registers it again: it is then called once per registration for every matching publish.
     - If this is the first subscription to the given subject, send a subscription message to the upstream node to subscribe the given subject.
 - **Unsubscribe**
     - Parameters:
         - subject to unsubscribe from
         - the corresponding subscription callback to remove
     - Remove the subscription callback from the given subject in the register.
+        - If the callback is registered more than once under the subject, remove one registration only: it takes as many unsubscribes as subscribes to remove it.
+        - If the callback is not registered under the subject, do nothing.
     - If the particular subject no longer has any subscription callback attached to it, send an unsubscription message to the upstream node to unsubscribe from the given subject.
 - **Publish**
     - Parameters:

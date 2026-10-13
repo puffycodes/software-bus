@@ -125,6 +125,42 @@ async def test_unsubscribe_sends_wire_message_only_when_last_callback_removed():
 
 
 @pytest.mark.asyncio
+async def test_unsubscribe_removes_one_registration_of_a_callback_subscribed_twice():
+    server, connected = await accept_one_peer_connection()
+    client = PubSubClient()
+    received = []
+
+    def callback(matched, actual, payload):
+        received.append(payload)
+
+    try:
+        await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+        peer = await asyncio.wait_for(connected, timeout=1)
+        await client.subscribe("a.b", callback)
+        await client.subscribe("a.b", callback)
+        await asyncio.wait_for(peer.receive(), timeout=1)  # the single subscribe message
+
+        await client.publish("a.b", b"both")
+        assert received == [b"both", b"both"]
+
+        await client.unsubscribe("a.b", callback)
+        await asyncio.wait_for(peer.receive(), timeout=1)  # the publish
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(peer.receive(), timeout=0.1)
+        await client.publish("a.b", b"one")
+        assert received == [b"both", b"both", b"one"]
+
+        await client.unsubscribe("a.b", callback)
+        await asyncio.wait_for(peer.receive(), timeout=1)  # the publish
+        last = await asyncio.wait_for(peer.receive(), timeout=1)
+        assert decode_message(last) == SubscriptionMessage("a.b", subscribe=False)
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
 async def test_publish_delivered_only_to_subscribed_client():
     node = PubSubNode()
     subscriber = PubSubClient()
