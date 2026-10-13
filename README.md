@@ -286,7 +286,8 @@ refused the same way. Every node in a tree has to be a version that does
 this check. See "Cycle Prevention" in
 [`docs/design/publish-subscribe.md`](docs/design/publish-subscribe.md) for the
 full rules. Closing a node while `establish_connection` is still checking
-makes it raise straight away. (Base-layer nodes don't check: a tree of `BaseLayerNode`s must
+makes it raise straight away, and so does the new connection dropping
+during the check (a `ConnectionError`), at whatever step the check is at. (Base-layer nodes don't check: a tree of `BaseLayerNode`s must
 still be kept free of cycles by hand — `bus_check`, below, can find them.)
 
 A `PubSubNode` treats a failed connection (peer dropped, or a send/receive
