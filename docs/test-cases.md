@@ -1,6 +1,6 @@
 # Test Cases
 
-All 359 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 360 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -294,7 +294,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - An unreachable server raises "cannot connect" (2 cases).
   - An invalid request subject, with a wild card or too long, raises "invalid subject" before connecting (4 cases).
 
-## `bus_check` (`test_bus_check.py`, 43 cases)
+## `bus_check` (`test_bus_check.py`, 44 cases)
 - **Recognising node processes (11 cases)**
   - Nodes are recognised when started as `python -m software_bus.bl_server` or `ps_server`, including under a full Python path on Linux or Windows.
   - The installed `bl_server.exe` is recognised.
@@ -318,6 +318,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A node really connected to its own listening port is kept.
   - A node listening on a wildcard address (0.0.0.0) is matched.
   - Connections to other machines, and node connections whose other end is hidden, are counted for the warnings.
+  - A node connection on this machine whose other end isn't listed at all (e.g. it closed meanwhile) is counted with the connections to other machines.
   - Hidden connections that no node takes part in are ignored.
 - **Report and exit status**
   - Listening addresses are filled in and the cycle is found.

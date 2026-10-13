@@ -581,7 +581,8 @@ check can't run. Clients are ignored (a process with one connection can't
 be part of a cycle). A program that runs a node itself, rather than through
 `bl_server`/`ps_server`, can be included with `--pid PID` (repeatable).
 Only this machine is checked: connections to other machines are counted in
-a warning but not followed.
+a warning but not followed, as are node connections whose other end the
+operating system didn't list (e.g. one that closed during the check).
 
 It also warns when the operating system hides something the check needs: a
 node connection whose other end belongs to a process you can't see, or a

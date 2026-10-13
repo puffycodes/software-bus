@@ -149,6 +149,13 @@ def test_find_links_counts_connections_to_other_machines_and_hidden_processes():
     assert (links, unchecked, hidden) == ([], 1, 1)
 
 
+def test_find_links_counts_a_local_connection_whose_other_end_is_unlisted_as_unchecked():
+    # e.g. the other end closed while the OS was listing connections
+    nodes = {1: _node(1, ("127.0.0.1", 8000))}
+    connections = [_connection(1, 8000, 50000)]  # on this machine, but no other end listed
+    assert find_links(connections, nodes) == ([], 1, 0)
+
+
 def test_find_links_ignores_hidden_connections_no_node_takes_part_in():
     # e.g. another user's ssh session, as a normal user on Linux sees it
     nodes = {1: _node(1, ("127.0.0.1", 8000)), 2: _node(2)}
