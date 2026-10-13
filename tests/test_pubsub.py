@@ -1036,6 +1036,50 @@ async def test_subscribe_with_too_long_subject_raises_and_registers_nothing():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "subject", ["a.*", "*", "x" * 65536], ids=["wild card part", "only a wild card", "too long"]
+)
+async def test_publish_to_wildcard_or_too_long_subject_raises_and_sends_nothing(subject):
+    server, connected = await accept_one_peer_connection()
+    client = PubSubClient()
+    received = []
+    try:
+        await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+        peer = await asyncio.wait_for(connected, timeout=1)
+        await client.subscribe("*.*", lambda matched, actual, payload: received.append(actual))
+        await client.subscribe("*", lambda matched, actual, payload: received.append(actual))
+        await asyncio.wait_for(peer.receive(), timeout=1)  # the two subscribe messages
+        await asyncio.wait_for(peer.receive(), timeout=1)
+
+        with pytest.raises(ValueError):
+            await client.publish(subject, b"x")
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(peer.receive(), timeout=0.1)
+        assert received == []  # not delivered locally either
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_publish_to_subject_with_star_inside_a_part_is_allowed():
+    # only a whole "*" part is a wild card
+    server, connected = await accept_one_peer_connection()
+    client = PubSubClient()
+    try:
+        await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+        peer = await asyncio.wait_for(connected, timeout=1)
+        await client.publish("a.b*", b"x")
+        sent = await asyncio.wait_for(peer.receive(), timeout=1)
+        assert decode_message(sent) == PublishMessage("a.b*", b"x")
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
 async def test_client_connection_error_callback_called_when_node_goes_away():
     node, port = await _start_node()
     client = PubSubClient()

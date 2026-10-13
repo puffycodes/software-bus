@@ -123,6 +123,14 @@ def check_subject(subject: str) -> None:
         raise ValueError(f"subject is {length} bytes, over the {_MAX_SUBJECT_LENGTH}-byte limit")
 
 
+def check_publish_subject(subject: str) -> None:
+    """Raise ValueError if `subject` can't be published to: too long, or it has a
+    wild card (a published subject is always literal)."""
+    check_subject(subject)
+    if "*" in subject.split("."):
+        raise ValueError(f"cannot publish to {subject!r}: it contains a wild card")
+
+
 def encode_message(message: Message) -> bytes:
     if isinstance(message, HelloMessage):
         return bytes([_MSG_HELLO]) + _check_id(message.node_id, "node_id")
@@ -745,9 +753,11 @@ class PubSubClient:
     async def publish(self, subject: str, payload: bytes) -> None:
         """Publish `payload` under `subject`.
 
-        The node never sends a publish back to its sender, so this client's
-        own matching subscription callbacks are called here directly.
+        Raises ValueError, sending nothing, if `subject` contains a wild card
+        or is too long. The node never sends a publish back to its sender, so
+        this client's own matching subscription callbacks are called here directly.
         """
+        check_publish_subject(subject)
         message = PublishMessage(subject, payload)
         await self._client.send(encode_message(message))
         await self._deliver(message)

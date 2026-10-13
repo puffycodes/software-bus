@@ -171,6 +171,8 @@ A node that is checking therefore answers every query it receives with unknown:
     - Parameters:
         - subject to publish to
         - payload of the publish message
+    - If the subject contains a wild card, or is too long to encode (see `data-format.md`), report an error and send nothing. A published subject is always literal.
+        - Nodes do not check this: a publish to a subject with a wild card from a client that does not check it is routed like any other, with the "*" matched as a plain character.
     - Send a publish message to the upstream node with the given subject and payload.
     - If the client itself has subscribed subjects that match the given subject, call their subscription callbacks too, the same way as for a received publish message. The node does not send a publish back to the connection it came from, so this is how a client receives its own publishes.
 - **Message Processing**
@@ -224,7 +226,7 @@ A node that is checking therefore answers every query it receives with unknown:
     - parameter --repeat-count n (default: 1)
     - parameter --repeat-interval t (default: 1 sec)
 - Exit with an error message and exit status 1 if:
-    - the subject is too long to encode (see `data-format.md`), checked before connecting,
+    - the subject contains a wild card or is too long to encode (see `data-format.md`), checked before connecting,
     - it cannot connect to the server, or
     - the connection to the server is lost while still publishing.
 - Print logging information

@@ -254,8 +254,14 @@ async def test_ps_publish_run_raises_connect_failed_when_server_unreachable():
         lambda port: ps_subscribe.run("127.0.0.1", port, ["a.b", "x" * 65536]),
         lambda port: ps_subscribe.run("127.0.0.1", port, ["é" * 32768]),
         lambda port: ps_publish.run("127.0.0.1", port, "x" * 65536, "hi"),
+        lambda port: ps_publish.run("127.0.0.1", port, "a.*", "hi"),
     ],
-    ids=["ps_subscribe too long", "ps_subscribe too long in utf-8", "ps_publish too long"],
+    ids=[
+        "ps_subscribe too long",
+        "ps_subscribe too long in utf-8",
+        "ps_publish too long",
+        "ps_publish wild card",
+    ],
 )
 async def test_ps_run_raises_invalid_subject_before_connecting(run):
     # no server on this port: the subject is rejected first

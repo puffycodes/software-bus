@@ -15,7 +15,7 @@ from ._cli import (
     run_until_connection_lost,
     run_until_interrupted,
 )
-from .pubsub import PubSubClient, check_subject
+from .pubsub import PubSubClient, check_publish_subject
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -48,7 +48,7 @@ async def run(
 ) -> None:
     # checked before connecting: an invalid subject is reported even with no server
     try:
-        check_subject(subject)
+        check_publish_subject(subject)
     except ValueError as exc:
         raise InvalidSubject(subject, exc) from exc
 
