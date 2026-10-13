@@ -217,6 +217,7 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
 - Exit status:
     - 0 if at least one reply was received before the wait ended.
     - 1 if the wait ended by the timeout with no reply received, after printing "<request_subject>: timed out".
+        - Then also print an error message saying that no reply arrived before the timeout, as for the errors below (e.g. "error: no reply to '<request_subject>' before the timeout").
 - Exit with an error message and exit status 1 if:
     - the request subject is invalid (see **Parameter Checks**, e.g. it contains a wild card or is too long),
     - it cannot connect to the server, or
