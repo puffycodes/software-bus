@@ -1,6 +1,6 @@
 # Test Cases
 
-All 365 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 370 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -73,7 +73,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Closing a client that never connected, or closing it twice, does no harm.
   - A failed send is reported to the connection error callback and also raised to the caller.
 
-## Publish/subscribe (`test_pubsub.py`, 60 cases)
+## Publish/subscribe (`test_pubsub.py`, 64 cases)
 - **Wire format (21 cases)**
   - Subscription and publish messages have exactly the byte layout in `data-format.md`, including a subject's length counted in UTF-8 bytes.
   - Bytes after a subscription's subject are ignored.
@@ -88,6 +88,11 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Subscribing with a subject that's too long raises an error and leaves nothing registered.
   - Subscribing while not connected raises an error and leaves nothing registered, so subscribing to the same subject once connected still sends the subscription.
   - If sending a subscription fails, the error is raised (and reported as a connection error), and only that subject's callback is removed; other subjects stay subscribed.
+- **Reconnecting**
+  - After closing, connecting again sends the new node one subscription for every subject still subscribed (wildcards too), and none for a subject already unsubscribed.
+  - After its node goes away, a subscriber that connects to another node gets publishes there again without subscribing again.
+  - A subject unsubscribed while `connect` is re-sending subscriptions is not subscribed again after its unsubscribe.
+  - If re-sending a subscription fails, `connect` raises, the failed connection is dropped, and the subscriptions stay registered: the next `connect` sends them.
   - Publishing to a subject with a wild card part (`a.*`, or just `*`) or one that's too long raises an error, sends nothing to the node and calls none of the client's own callbacks (3 cases).
   - A `*` inside a part (`a.b*`) is not a wild card, so publishing to it is allowed.
   - Only the first callback on a subject sends a subscription to the node.
@@ -171,7 +176,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A node that adds two links at once checks them one at a time.
   - Two nodes adding links at the same time can't close a cycle between them.
 
-## Request/reply (`test_request_reply.py`, 39 cases)
+## Request/reply (`test_request_reply.py`, 40 cases)
 - **Wire format and subjects (17 cases)**
   - A Request Message has exactly the byte layout in `data-format.md`, and survives encoding and decoding unchanged.
   - A Request Message with an empty payload, and one with binary content and a non-ASCII reply subject, survive encoding and decoding (2 cases).
@@ -195,6 +200,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Sending a request when not connected raises an error, calls nothing and leaves nothing behind.
   - Accepting requests when not connected raises an error and leaves nothing registered or subscribed.
   - Stopping an acceptor after the connection is lost raises an error, but the acceptor is still forgotten and its subscription removed locally.
+  - An acceptor keeps accepting requests after its client is closed and connects again.
   - Losing the connection while a request is being sent is reported once, as an error from `send_request`; only requests already sent get a `CONNECTION_LOST` call.
   - If the client is closed, or loses its connection, while a request is being sent but the send still succeeds, `send_request` ends that request once it's sent, with `CLOSED` or `CONNECTION_LOST` respectively, instead of leaving it waiting (2 cases).
 - **Callbacks**

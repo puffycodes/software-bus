@@ -146,7 +146,12 @@ A node that is checking therefore answers every query it receives with unknown:
 
 - **Instantiation** Create an instance of the class
 - **Register Connection Error Callback** Provide a function to call when there is error with the connection to the upstream node. This is passed straight to the Base Layer Client, with the same default.
-- **Close** Close the connection to the upstream node, as the Base Layer Client does.
+- **Connect** Connect to the upstream node, as the Base Layer Client does.
+    - Then send a subscription message with subscribe content for every subject that has subscription callbacks registered.
+        - Subscriptions belong to the client, not to a connection: losing the connection, or Close, keeps them (the node forgets them, see Exception Handling), and Connect sends them again, so reconnecting resumes them.
+        - A subject unsubscribed while these are being sent is not subscribed again: its unsubscribe message has already been sent.
+    - If one of them cannot be sent, report the error. The connection has then failed (see the Base Layer Client), and the subscriptions stay registered, to be sent on the next Connect.
+- **Close** Close the connection to the upstream node, as the Base Layer Client does. The subscriptions are kept (see Connect).
 - **Subscribe**
     - Parameters:
         - subject to subscribe to

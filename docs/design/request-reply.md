@@ -50,6 +50,7 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
 - **Instantiation** Create an instance of the class.
     - Create an instance of the Publish and Subscribe client. It takes no parameters; the upstream node is given to **Connect**.
 - **Connect** Connect to the upstream node, as the Publish and Subscribe client does.
+    - Its subscriptions are sent again too, so requests are still accepted (see **Accept Request**) after reconnecting. Pending requests are not carried over: **Close** and a connection error end their waits.
     - Parameters:
         - The IP address and port number of the upstream node.
             - The defaults are the same as the Base Layer Client's.

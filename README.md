@@ -192,6 +192,11 @@ A client holds one connection at a time: `connect()` on a client that's
 already connected raises `RuntimeError` and keeps the existing connection.
 To reconnect, `close()` first, or connect again once the connection has
 been lost. The same goes for `PubSubClient` and `RequestReplyClient`.
+Their subscriptions (and request acceptors) belong to the client, not the
+connection: they survive `close()` or a lost connection, and `connect()`
+subscribes the node it connects to to all of them again, so reconnecting
+resumes them. Pending requests don't carry over: they end with
+`ReplyStatus.CLOSED` or `ReplyStatus.CONNECTION_LOST`.
 
 As on a node, an exception raised by the receive callback is logged and
 costs only that one message: the client stays connected and keeps

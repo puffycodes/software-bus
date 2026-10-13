@@ -315,6 +315,34 @@ async def test_connection_error_ends_pending_requests_then_calls_the_callback():
 
 
 @pytest.mark.asyncio
+async def test_acceptor_keeps_accepting_after_the_client_reconnects():
+    node, port = await start_node()
+    replier = await connected_client(port)
+    requester = await connected_client(port)
+    replies = []
+    try:
+        async def on_request(request_subject, reply_subject, payload):
+            await replier.send_reply(reply_subject, b"pong")
+
+        await replier.accept_request("svc", on_request)
+        await replier.close()
+        await replier.connect("127.0.0.1", port)
+        await asyncio.sleep(0.05)
+
+        def on_reply(reply_subject, payload, status):
+            replies.append((payload, status))
+            return True
+
+        await requester.send_request("svc", b"ping", on_reply, timeout=1)
+        await asyncio.sleep(0.1)
+        assert replies == [(b"pong", REPLY)]
+    finally:
+        await requester.close()
+        await replier.close()
+        await node.close()
+
+
+@pytest.mark.asyncio
 async def test_send_request_when_not_connected_raises_and_leaves_nothing():
     client = RequestReplyClient()
     replies = []

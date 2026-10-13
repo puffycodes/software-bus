@@ -5,6 +5,7 @@ import uuid
 import pytest
 
 from software_bus import PubSubClient, PubSubNode
+from software_bus.base_layer import Connection
 from software_bus.pubsub import (
     PublishMessage,
     ReachabilityQueryMessage,
@@ -1058,6 +1059,151 @@ async def test_subscribe_while_not_connected_raises_and_registers_nothing():
         await client.close()
         server.close()
         await server.wait_closed()
+
+
+async def _receive_subscriptions(peer, count):
+    messages = [decode_message(await asyncio.wait_for(peer.receive(), timeout=1)) for _ in range(count)]
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(peer.receive(), timeout=0.1)  # nothing more
+    return messages
+
+
+@pytest.mark.asyncio
+async def test_connect_after_close_subscribes_the_new_connection_to_every_subject_still_held():
+    server_1, connected_1 = await accept_one_peer_connection()
+    server_2, connected_2 = await accept_one_peer_connection()
+    client = PubSubClient()
+
+    def callback(matched, actual, payload):
+        pass
+
+    try:
+        await client.connect("127.0.0.1", server_1.sockets[0].getsockname()[1])
+        peer_1 = await asyncio.wait_for(connected_1, timeout=1)
+        await client.subscribe("a.b", callback)
+        await client.subscribe("a.b", callback)  # one subscription message per subject
+        await client.subscribe("x.*", callback)
+        await client.subscribe("gone", callback)
+        await client.unsubscribe("gone", callback)
+        assert len(await _receive_subscriptions(peer_1, 4)) == 4
+        await client.close()
+
+        await client.connect("127.0.0.1", server_2.sockets[0].getsockname()[1])
+        peer_2 = await asyncio.wait_for(connected_2, timeout=1)
+        assert sorted(await _receive_subscriptions(peer_2, 2), key=lambda m: m.subject) == [
+            SubscriptionMessage("a.b", subscribe=True),
+            SubscriptionMessage("x.*", subscribe=True),
+        ]
+    finally:
+        await client.close()
+        for server in (server_1, server_2):
+            server.close()
+            await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_subscriptions_resume_after_reconnecting_to_a_new_node_once_the_old_one_is_lost():
+    old_node, old_port = await _start_node()
+    new_node, new_port = await _start_node()
+    subscriber = PubSubClient()
+    publisher = PubSubClient()
+    received = []
+    lost = asyncio.get_running_loop().create_future()
+    subscriber.register_connection_error_callback(lambda connection, error: lost.set_result(error))
+    try:
+        await subscriber.connect("127.0.0.1", old_port)
+        await subscriber.subscribe("a.*", lambda matched, actual, payload: received.append(payload))
+        await old_node.close()
+        await asyncio.wait_for(lost, timeout=1)
+
+        await subscriber.connect("127.0.0.1", new_port)
+        await publisher.connect("127.0.0.1", new_port)
+        await asyncio.sleep(0.05)
+        await publisher.publish("a.b", b"resumed")
+        await asyncio.sleep(0.05)
+
+        assert received == [b"resumed"]
+    finally:
+        await subscriber.close()
+        await publisher.close()
+        await old_node.close()
+        await new_node.close()
+
+
+@pytest.mark.asyncio
+async def test_subject_unsubscribed_while_connect_resubscribes_is_not_subscribed_again(monkeypatch):
+    server_1, connected_1 = await accept_one_peer_connection()
+    server_2, connected_2 = await accept_one_peer_connection()
+    client = PubSubClient()
+
+    def callback(matched, actual, payload):
+        pass
+
+    try:
+        await client.connect("127.0.0.1", server_1.sockets[0].getsockname()[1])
+        await asyncio.wait_for(connected_1, timeout=1)
+        await client.subscribe("a", callback)
+        await client.subscribe("b", callback)
+        await client.close()
+
+        original_send = Connection.send
+        unsubscribed = False
+
+        async def send_then_unsubscribe_b(self, data):
+            nonlocal unsubscribed
+            await original_send(self, data)
+            if not unsubscribed:  # while "a" is being re-sent, unsubscribe "b"
+                unsubscribed = True
+                await client.unsubscribe("b", callback)
+
+        monkeypatch.setattr(Connection, "send", send_then_unsubscribe_b)
+        await client.connect("127.0.0.1", server_2.sockets[0].getsockname()[1])
+        peer_2 = await asyncio.wait_for(connected_2, timeout=1)
+        assert await _receive_subscriptions(peer_2, 2) == [
+            SubscriptionMessage("a", subscribe=True),
+            SubscriptionMessage("b", subscribe=False),  # and no subscribe to "b" after it
+        ]
+    finally:
+        await client.close()
+        for server in (server_1, server_2):
+            server.close()
+            await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_connect_whose_resubscription_fails_raises_and_keeps_the_subscriptions(monkeypatch):
+    server_1, connected_1 = await accept_one_peer_connection()
+    server_2, connected_2 = await accept_one_peer_connection()
+    server_3, connected_3 = await accept_one_peer_connection()
+    client = PubSubClient()
+
+    def callback(matched, actual, payload):
+        pass
+
+    try:
+        await client.connect("127.0.0.1", server_1.sockets[0].getsockname()[1])
+        await asyncio.wait_for(connected_1, timeout=1)
+        await client.subscribe("a.b", callback)
+        await client.close()
+
+        async def failing_send(self, data):
+            raise ConnectionResetError("send failed")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(Connection, "send", failing_send)
+            with pytest.raises(ConnectionResetError):
+                await client.connect("127.0.0.1", server_2.sockets[0].getsockname()[1])
+        assert client._client.connection is None  # the failed connection is dropped
+        assert list(client._subscribe_callbacks) == ["a.b"]
+
+        await client.connect("127.0.0.1", server_3.sockets[0].getsockname()[1])
+        peer_3 = await asyncio.wait_for(connected_3, timeout=1)
+        assert await _receive_subscriptions(peer_3, 1) == [SubscriptionMessage("a.b", subscribe=True)]
+    finally:
+        await client.close()
+        for server in (server_1, server_2, server_3):
+            server.close()
+            await server.wait_closed()
 
 
 @pytest.mark.asyncio

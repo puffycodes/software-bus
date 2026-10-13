@@ -735,9 +735,22 @@ class PubSubClient:
         self._matcher = StringPatternMatcher()
 
     async def connect(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> Connection:
-        return await self._client.connect(host, port)
+        """Connect to a node, then subscribe it to every subject this client still has.
+
+        Subscriptions belong to the client, not to a connection: they outlive a
+        lost connection or `close()`, and are sent again here, so reconnecting
+        resumes them. If one can't be sent, the error is raised (the connection
+        is then lost) and the subscriptions stay registered for the next connect.
+        """
+        connection = await self._client.connect(host, port)
+        for subject in list(self._subscribe_callbacks):
+            # unsubscribed meanwhile: its unsubscribe went out, so don't subscribe it again
+            if subject in self._subscribe_callbacks:
+                await self._client.send(encode_message(SubscriptionMessage(subject, subscribe=True)))
+        return connection
 
     async def close(self) -> None:
+        """Close the connection; the subscriptions are kept for the next `connect`."""
         await self._client.close()
 
     def register_connection_error_callback(self, callback: ConnectionErrorCallback) -> None:
