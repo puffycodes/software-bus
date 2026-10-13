@@ -1,6 +1,6 @@
 # Test Cases
 
-All 371 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 373 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -73,7 +73,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Closing a client that never connected, or closing it twice, does no harm.
   - A failed send is reported to the connection error callback and also raised to the caller.
 
-## Publish/subscribe (`test_pubsub.py`, 64 cases)
+## Publish/subscribe (`test_pubsub.py`, 66 cases)
 - **Wire format (21 cases)**
   - Subscription and publish messages have exactly the byte layout in `data-format.md`, including a subject's length counted in UTF-8 bytes.
   - Bytes after a subscription's subject are ignored.
@@ -88,6 +88,8 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Subscribing with a subject that's too long raises an error and leaves nothing registered.
   - Subscribing while not connected raises an error and leaves nothing registered, so subscribing to the same subject once connected still sends the subscription.
   - If sending a subscription fails, the error is raised (and reported as a connection error), and only that subject's callback is removed; other subjects stay subscribed.
+  - Unsubscribing while not connected raises an error, but the callback is still removed, so the next connect won't subscribe the subject again.
+  - Publishing while not connected raises an error and calls none of the client's own callbacks.
 - **Reconnecting**
   - After closing, connecting again sends the new node one subscription for every subject still subscribed (wildcards too), and none for a subject already unsubscribed.
   - After its node goes away, a subscriber that connects to another node gets publishes there again without subscribing again.

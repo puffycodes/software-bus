@@ -1061,6 +1061,40 @@ async def test_subscribe_while_not_connected_raises_and_registers_nothing():
         await server.wait_closed()
 
 
+@pytest.mark.asyncio
+async def test_unsubscribe_while_not_connected_raises_but_still_removes_the_callback():
+    server, connected = await accept_one_peer_connection()
+    client = PubSubClient()
+
+    def callback(matched, actual, payload):
+        pass
+
+    try:
+        await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+        await asyncio.wait_for(connected, timeout=1)
+        await client.subscribe("a.b", callback)
+        await client.close()
+
+        with pytest.raises(RuntimeError, match="not connected"):
+            await client.unsubscribe("a.b", callback)
+        assert client._subscribe_callbacks == {}  # so the next connect won't send it
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_publish_while_not_connected_raises_and_calls_no_own_callback():
+    client = PubSubClient()
+    received = []
+    client._subscribe_callbacks["a.b"] = [lambda matched, actual, payload: received.append(payload)]
+
+    with pytest.raises(RuntimeError, match="not connected"):
+        await client.publish("a.b", b"x")
+    assert received == []
+
+
 async def _receive_subscriptions(peer, count):
     messages = [decode_message(await asyncio.wait_for(peer.receive(), timeout=1)) for _ in range(count)]
     with pytest.raises(asyncio.TimeoutError):

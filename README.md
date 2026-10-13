@@ -258,7 +258,9 @@ node is only told about the subscription once, for the first callback
 registered on a given subject. Subscribing the same function to the same
 subject twice registers it twice, so it's called twice per publish. If the
 subscription can't be sent (e.g. the client isn't connected), `subscribe`
-raises and leaves nothing registered.
+raises and leaves nothing registered. If an unsubscribe can't be sent, the
+callback is still removed and the error raised; if a publish can't be
+sent, the error is raised and the client's own callbacks aren't called.
 `unsubscribe(subject, callback)` removes one registration of that callback
 (so a function subscribed twice needs two unsubscribes), only telling the
 upstream node once no callback remains for that subject — so keep a

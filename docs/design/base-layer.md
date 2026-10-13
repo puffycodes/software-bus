@@ -68,6 +68,7 @@ Functionalities
         - This includes two Connects made at the same time: only one of them connects.
         - To connect again, Close first. Once the connection has been lost (see Exceptions Related to the Connection), the client is no longer connected and can Connect again.
 - **Send** Send data to the TCP connection established.
+    - If the client is not connected, report an error to the caller and send nothing.
 - **Register Receive Callback** Provide a function to call when data are received.
     - Default is None, meaning not to call any function.
 - **Action Upon Receiving of Data** Call the given function, if any, with the data as one of the parameters.

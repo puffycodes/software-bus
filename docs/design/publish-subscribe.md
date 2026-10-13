@@ -175,6 +175,7 @@ A node that is checking therefore answers every query it receives with unknown:
         - If the callback is registered more than once under the subject, remove one registration only: it takes as many unsubscribes as subscribes to remove it.
         - If the callback is not registered under the subject, do nothing.
     - If the particular subject no longer has any subscription callback attached to it, send an unsubscription message to the upstream node to unsubscribe from the given subject.
+        - If it cannot be sent (e.g. the client is not connected, or the connection fails while sending), the subscription callback is still removed, and the error is reported. The subject is then no longer subscribed, so the next Connect does not send it (see Connect).
 - **Publish**
     - Parameters:
         - subject to publish to
@@ -182,7 +183,8 @@ A node that is checking therefore answers every query it receives with unknown:
     - If the subject contains a wild card, or is too long to encode (see `data-format.md`), report an error and send nothing. A published subject is always literal.
         - Nodes do not check this: a publish to a subject with a wild card from a client that does not check it is routed like any other, with the "*" matched as a plain character.
     - Send a publish message to the upstream node with the given subject and payload.
-    - If the client itself has subscribed subjects that match the given subject, call their subscription callbacks too, the same way as for a received publish message. The node does not send a publish back to the connection it came from, so this is how a client receives its own publishes.
+        - If it cannot be sent (e.g. the client is not connected, or the connection fails while sending), report the error, and do not call the client's own subscription callbacks below.
+    - Once it has been sent, if the client itself has subscribed subjects that match the given subject, call their subscription callbacks too, the same way as for a received publish message. The node does not send a publish back to the connection it came from, so this is how a client receives its own publishes.
 - **Message Processing**
     - Upon receiving a subscription message, log the subscription message.
         - Note: The subscription message currently has no use to a Client Node. If some use case arises, the logical move is to provide a callback here. This will not be implemented yet.
