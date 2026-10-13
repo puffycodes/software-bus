@@ -423,6 +423,103 @@ async def test_peer_dropping_during_the_check_fails_establish_connection():
 
 
 @pytest.mark.asyncio
+async def test_peer_dropping_while_its_query_waits_for_replies_ends_the_check_at_once():
+    node = PubSubNode()  # default check_timeout: the failure must not wait for the silent peer
+    server_1, connected_1 = await accept_one_peer_connection()
+    server_2, connected_2 = await accept_one_peer_connection()
+    try:
+        silent = await establish_to_raw_peer(node, server_1, connected_1)
+
+        port_2 = server_2.sockets[0].getsockname()[1]
+        task = asyncio.ensure_future(node.establish_connection("127.0.0.1", port_2))
+        peer = await asyncio.wait_for(connected_2, timeout=1)
+        await greet_as_node(peer)
+        assert isinstance(await _receive(silent), ReachabilityQueryMessage)  # never answered
+
+        await peer.close()
+
+        with pytest.raises(ConnectionError):
+            await asyncio.wait_for(task, timeout=1)
+        # no longer checking: its query is dropped and other queries aren't answered unknown
+        assert not node._checking
+        assert node._queries == {}
+        assert not node._check_lock.locked()
+        assert len(node.upstream_connections) == 1  # only the silent peer's
+    finally:
+        await node.close()
+        for server in (server_1, server_2):
+            server.close()
+            await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_peer_dropping_during_the_delay_between_attempts_ends_the_check_at_once():
+    node = PubSubNode()
+    node.check_retry_delay = (5.0, 5.0)  # the failure must not wait for the delay to end
+    server_1, connected_1 = await accept_one_peer_connection()
+    server_2, connected_2 = await accept_one_peer_connection()
+    try:
+        existing = await establish_to_raw_peer(node, server_1, connected_1)
+
+        port_2 = server_2.sockets[0].getsockname()[1]
+        task = asyncio.ensure_future(node.establish_connection("127.0.0.1", port_2))
+        peer = await asyncio.wait_for(connected_2, timeout=1)
+        await greet_as_node(peer)
+        await answer_query(existing, ReachabilityResult.UNKNOWN)  # so it waits, then retries
+        await asyncio.sleep(0.05)
+
+        await peer.close()
+
+        with pytest.raises(ConnectionError):
+            await asyncio.wait_for(task, timeout=1)
+        assert not node._check_lock.locked()
+    finally:
+        await node.close()
+        for server in (server_1, server_2):
+            server.close()
+            await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_peer_dropping_while_its_check_waits_for_another_ends_it_at_once():
+    node = PubSubNode()
+    servers = [await accept_one_peer_connection() for _ in range(3)]
+    try:
+        slow = await establish_to_raw_peer(node, *servers[0])
+
+        # the first check holds the lock until `slow` answers its query
+        first = asyncio.ensure_future(
+            node.establish_connection("127.0.0.1", servers[1][0].sockets[0].getsockname()[1])
+        )
+        await greet_as_node(await asyncio.wait_for(servers[1][1], timeout=1))
+        first_query = await _receive(slow)
+
+        # the second waits its turn; its peer drops meanwhile
+        second = asyncio.ensure_future(
+            node.establish_connection("127.0.0.1", servers[2][0].sockets[0].getsockname()[1])
+        )
+        queued_peer = await asyncio.wait_for(servers[2][1], timeout=1)
+        await greet_as_node(queued_peer)
+        await queued_peer.close()
+
+        with pytest.raises(ConnectionError):
+            await asyncio.wait_for(second, timeout=1)
+        assert not first.done()  # the earlier check carries on
+
+        await slow.send(
+            encode_message(ReachabilityReplyMessage(first_query.query_id, ReachabilityResult.NOT_FOUND))
+        )
+        await asyncio.wait_for(first, timeout=1)
+        assert len(node.upstream_connections) == 2
+        assert not node._check_lock.locked()
+    finally:
+        await node.close()
+        for server, _ in servers:
+            server.close()
+            await server.wait_closed()
+
+
+@pytest.mark.asyncio
 async def test_messages_held_from_a_refused_connection_are_discarded():
     node, port = await _start_node()
     server, connected = await accept_one_peer_connection()

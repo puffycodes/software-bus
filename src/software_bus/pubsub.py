@@ -23,7 +23,7 @@ import random
 import uuid
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple, TypeVar, Union
 
 from .base_layer import (
     DEFAULT_HOST,
@@ -37,6 +37,8 @@ from .client import BaseLayerClient
 from .subject_matcher import StringPatternMatcher
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 _MSG_SUBSCRIPTION = 0x01
 _MSG_PUBLISH = 0x02
@@ -253,6 +255,7 @@ class _PendingConnection:
     """An established connection that the cycle check has not accepted yet."""
 
     hello: asyncio.Future  # resolves to the peer's Node ID
+    lost: asyncio.Future  # resolves once the connection fails or is closed
     held: List[Message] = field(default_factory=list)  # subscriptions/publishes, in order
 
 
@@ -367,8 +370,9 @@ class PubSubNode:
 
     async def _on_upstream_new_connection(self, connection: Connection) -> None:
         # pending before the first await, so nothing received on it is processed as active
+        loop = asyncio.get_running_loop()
         self._pending[id(connection)] = _PendingConnection(
-            hello=asyncio.get_running_loop().create_future()
+            hello=loop.create_future(), lost=loop.create_future()
         )
         await self._send_to([connection], HelloMessage(self.node_id))
 
@@ -401,11 +405,14 @@ class PubSubNode:
         self._peer_node_ids.pop(id(connection), None)
         self._draining.pop(id(connection), None)
         pending = self._pending.pop(id(connection), None)
-        if pending is not None and not pending.hello.done():
-            pending.hello.set_exception(
-                ConnectionError("connection closed before the peer identified itself")
-            )
-            pending.hello.exception()  # retrieved: no "never retrieved" log if nobody waits
+        if pending is not None:
+            if not pending.lost.done():
+                pending.lost.set_result(None)  # ends its cycle check, whatever step it is at
+            if not pending.hello.done():
+                pending.hello.set_exception(
+                    ConnectionError("connection closed before the peer identified itself")
+                )
+                pending.hello.exception()  # retrieved: no "never retrieved" log if nobody waits
         for query in list(self._queries.values()):
             query.reply(connection, ReachabilityResult.NOT_FOUND)
 
@@ -441,11 +448,14 @@ class PubSubNode:
             self._check_lock = asyncio.Lock()
         try:
             # one check at a time: two checked together could each pass and still form a cycle
-            async with self._check_lock:
+            await self._unless_lost(connection, self._check_lock.acquire())
+            try:
                 reason = await self._run_check(connection)
                 if reason is None:
                     await self._activate(connection)
                     return
+            finally:
+                self._check_lock.release()
         except BaseException:
             # lost during the check, or cancelled: don't leave it half set up
             await self._base._handle_connection_error(connection, True, None)
@@ -470,10 +480,11 @@ class PubSubNode:
 
         for attempt in range(self.max_check_attempts):
             if attempt:
-                await asyncio.sleep(random.uniform(*self.check_retry_delay))
-                self._still_pending(connection)
-            result = await self._ask_own_query(peer_id)
-            self._still_pending(connection)
+                await self._unless_lost(
+                    connection, asyncio.sleep(random.uniform(*self.check_retry_delay))
+                )
+            result = await self._unless_lost(connection, self._ask_own_query(peer_id))
+            self._still_pending(connection)  # it may have failed just as the query finished
             if result == ReachabilityResult.FOUND:
                 return "it would create a cycle"
             if result == ReachabilityResult.NOT_FOUND:
@@ -485,6 +496,23 @@ class PubSubNode:
         if pending is None:
             raise ConnectionError("connection closed during the cycle check")
         return pending
+
+    async def _unless_lost(self, connection: Connection, step: Awaitable[_T]) -> _T:
+        """Await one step of `connection`'s cycle check, abandoning it as soon as
+        the connection fails: the check then ends straight away with ConnectionError,
+        rather than once the step finishes (e.g. a query's replies, up to the timeout)."""
+        pending = self._still_pending(connection)
+        task = asyncio.ensure_future(step)
+        try:
+            await asyncio.wait({task, pending.lost}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            if not task.done():
+                task.cancel()
+                # let it clean up (e.g. its query, `_checking`) before the check goes on
+                await asyncio.wait({task})
+        if task.cancelled():
+            self._still_pending(connection)  # raises: the connection was lost
+        return task.result()
 
     async def _ask_own_query(self, target_node_id: bytes) -> ReachabilityResult:
         targets = self._active_node_connections()

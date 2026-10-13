@@ -71,7 +71,8 @@
     - Upon receiving a malformed message (see `data-format.md`), log it and ignore it. The connection is kept.
 - **Exception Handling**
     - When error occurs on a connection, remove the connection from every subject, applying the unsubscribe rules above for each subject as if the connection had sent an unsubscribe message.
-    - When error occurs on a pending connection, the cycle check for it ends, and Establish Connection reports the error to its caller.
+    - When error occurs on a pending connection, the cycle check for it ends straight away, and Establish Connection reports the error to its caller.
+        - This holds whatever step the check is at: waiting for its turn (see Cycle Prevention), for a Hello message, for the replies to its Reachability Query, or during the random delay between attempts. The check does not wait for that step to finish: a node that is still checking answers other nodes' queries with unknown, and holds up its own other new connections.
 - **Close** Close the Base Layer Node (which stops accepting connections and closes every connection), stop answering any reachability queries still in progress, and forget every subscription.
     - A cycle check still running ends as if its connection had failed, so Establish Connection reports an error to its caller straight away.
     - Closing the node is not an error on its connections, so it sends no unsubscribe messages (see Exception Handling).
