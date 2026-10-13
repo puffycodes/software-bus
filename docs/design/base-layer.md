@@ -64,6 +64,9 @@ Functionalities
 - **Instantiation** Create an instance of the class
 - **Connect** Create a TCP connection on an IP address and a port number.
     - The default IP address and port number is the same as the Base Layer Node Class.
+    - If the client is already connected, report an error and change nothing: the existing connection is kept, and no new one is made.
+        - This includes two Connects made at the same time: only one of them connects.
+        - To connect again, Close first. Once the connection has been lost (see Exceptions Related to the Connection), the client is no longer connected and can Connect again.
 - **Send** Send data to the TCP connection established.
 - **Register Receive Callback** Provide a function to call when data are received.
     - Default is None, meaning not to call any function.

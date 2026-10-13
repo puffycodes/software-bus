@@ -36,6 +36,76 @@ async def test_client_connect_sets_connection():
 
 
 @pytest.mark.asyncio
+async def test_client_connect_while_connected_raises_and_keeps_the_first_connection():
+    hub = BaseLayerNode()
+    client = BaseLayerClient()
+    received = []
+    hub.register_downstream_receive_callback(lambda source, data: received.append(data))
+    try:
+        server = await hub.accept_connection(port=0)
+        bound_port = server.sockets[0].getsockname()[1]
+        first = await client.connect("127.0.0.1", bound_port)
+
+        with pytest.raises(RuntimeError, match="already connected"):
+            await client.connect("127.0.0.1", bound_port)
+
+        assert client.connection is first
+        await client.send(b"still here")
+        await asyncio.sleep(0.05)
+        assert received == [b"still here"]
+        assert len(hub.downstream_connections) == 1  # no second connection was opened
+    finally:
+        await client.close()
+        await hub.close()
+
+
+@pytest.mark.asyncio
+async def test_client_connects_again_after_close():
+    hub = BaseLayerNode()
+    client = BaseLayerClient()
+    received = []
+    hub.register_downstream_receive_callback(lambda source, data: received.append(data))
+    try:
+        server = await hub.accept_connection(port=0)
+        bound_port = server.sockets[0].getsockname()[1]
+        await client.connect("127.0.0.1", bound_port)
+        await client.close()
+
+        second = await client.connect("127.0.0.1", bound_port)
+        assert client.connection is second
+        await client.send(b"again")
+        await asyncio.sleep(0.05)
+        assert received == [b"again"]
+    finally:
+        await client.close()
+        await hub.close()
+
+
+@pytest.mark.asyncio
+async def test_client_two_connects_at_once_leave_one_connection():
+    hub = BaseLayerNode()
+    client = BaseLayerClient()
+    try:
+        server = await hub.accept_connection(port=0)
+        bound_port = server.sockets[0].getsockname()[1]
+
+        results = await asyncio.gather(
+            client.connect("127.0.0.1", bound_port),
+            client.connect("127.0.0.1", bound_port),
+            return_exceptions=True,
+        )
+
+        connections = [r for r in results if not isinstance(r, BaseException)]
+        assert len(connections) == 1 and client.connection is connections[0]
+        assert any(isinstance(r, RuntimeError) for r in results)
+        await asyncio.sleep(0.05)
+        assert len(hub.downstream_connections) == 1  # the loser's connection was closed
+    finally:
+        await client.close()
+        await hub.close()
+
+
+@pytest.mark.asyncio
 async def test_client_send_reaches_hub():
     hub = BaseLayerNode()
     client = BaseLayerClient()

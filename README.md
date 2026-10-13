@@ -188,6 +188,11 @@ client.register_connection_error_callback(
 
 Closing the client yourself with `close()` doesn't call the callback.
 
+A client holds one connection at a time: `connect()` on a client that's
+already connected raises `RuntimeError` and keeps the existing connection.
+To reconnect, `close()` first, or connect again once the connection has
+been lost. The same goes for `PubSubClient` and `RequestReplyClient`.
+
 As on a node, an exception raised by the receive callback is logged and
 costs only that one message: the client stays connected and keeps
 receiving.

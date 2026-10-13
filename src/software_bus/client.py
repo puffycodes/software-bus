@@ -32,8 +32,18 @@ class BaseLayerClient:
     async def connect(
         self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT
     ) -> Connection:
+        """Connect to a node; raises RuntimeError, changing nothing, if already connected.
+
+        To connect again, close() first (or wait for the connection to be lost).
+        """
+        if self.connection is not None:
+            raise RuntimeError("already connected")
         reader, writer = await asyncio.open_connection(host, port)
         connection = Connection(reader, writer)
+        if self.connection is not None:
+            # another connect() finished first while this one was connecting
+            await connection.close()
+            raise RuntimeError("already connected")
         connection.background_task = asyncio.ensure_future(
             self._receive_loop(connection)
         )

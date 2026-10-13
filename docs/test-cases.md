@@ -1,6 +1,6 @@
 # Test Cases
 
-All 360 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 363 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -50,11 +50,14 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Closing a node doesn't report its own connections as errors, but the peer at the other end does see its connection dropped.
   - Closing a node twice, or closing one that never listened, does no harm.
 
-## Base layer client (`test_client.py`, 15 cases)
+## Base layer client (`test_client.py`, 18 cases)
 - **Connecting**
   - A new client isn't connected and has no receive callback.
   - The client's default address to connect to is the same as the node's default listening address.
   - After connecting, the client holds the connection.
+  - Connecting while already connected raises an error, opens no second connection, and keeps the first one working.
+  - Two connects at the same time leave exactly one connection: the other raises an error and its connection is closed.
+  - After closing, the client can connect again.
   - Sending without connecting first raises an error.
 - **Sending and receiving**
   - Data sent by a client reaches the node.
