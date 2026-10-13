@@ -2,6 +2,7 @@
 "Cycle Prevention"): a node refuses an established connection that would
 close a cycle."""
 import asyncio
+import inspect
 import logging
 import uuid
 
@@ -478,6 +479,28 @@ async def test_peer_dropping_during_the_delay_between_attempts_ends_the_check_at
         for server in (server_1, server_2):
             server.close()
             await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_a_check_step_for_an_already_lost_connection_is_closed_not_left_unawaited():
+    # e.g. the connection fails just as the retry delay ends: the next query's
+    # coroutine is created after the loss, and must not trigger "never awaited"
+    node = PubSubNode()
+    server, connected = await accept_one_peer_connection()
+    try:
+        port = server.sockets[0].getsockname()[1]
+        lost_connection = await node._base.establish_connection("127.0.0.1", port)
+        await lost_connection.close()
+        node._forget_connection(lost_connection)
+
+        step = asyncio.sleep(0)
+        with pytest.raises(ConnectionError):
+            await node._unless_lost(lost_connection, step)
+        assert inspect.getcoroutinestate(step) == inspect.CORO_CLOSED
+    finally:
+        await node.close()
+        server.close()
+        await server.wait_closed()
 
 
 @pytest.mark.asyncio

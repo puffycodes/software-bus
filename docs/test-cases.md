@@ -1,6 +1,6 @@
 # Test Cases
 
-All 370 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 371 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -133,7 +133,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A client logs and ignores reachability queries and replies (not as malformed), replies nothing, and keeps receiving.
   - A client's connection error callback is called when its node goes away.
 
-## Cycle prevention (`test_cycle_prevention.py`, 46 cases)
+## Cycle prevention (`test_cycle_prevention.py`, 47 cases)
 - **Wire format (13 cases)**
   - Hello, query and reply messages (all three results) survive encoding and decoding unchanged (5 cases).
   - Their byte layout is exactly as specified.
@@ -159,6 +159,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Closing a node while a check is still waiting for Hello ends the check straight away with an error.
   - The peer dropping during the check ends it straight away with an error.
   - It also ends straight away when the peer drops while the check's query is still waiting for a silent node's reply (the node then stops checking: its query is dropped and the lock is free), during the delay before a retry, or while the check is waiting for an earlier check to finish (which carries on and is accepted) (3 cases).
+  - A step of the check started for a connection that is already lost is closed rather than left unawaited, so Python doesn't warn about it.
   - Messages held from a connection that is then refused are thrown away: its subscriptions aren't recorded and its publishes aren't delivered.
   - If the connection fails while its held messages are being processed, the rest are dropped, so none of them tags a dead connection.
 - **Answering queries**

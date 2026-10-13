@@ -23,7 +23,7 @@ import random
 import uuid
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple, TypeVar, Union
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Set, Tuple, TypeVar, Union
 
 from .base_layer import (
     DEFAULT_HOST,
@@ -497,11 +497,15 @@ class PubSubNode:
             raise ConnectionError("connection closed during the cycle check")
         return pending
 
-    async def _unless_lost(self, connection: Connection, step: Awaitable[_T]) -> _T:
+    async def _unless_lost(self, connection: Connection, step: Coroutine[Any, Any, _T]) -> _T:
         """Await one step of `connection`'s cycle check, abandoning it as soon as
         the connection fails: the check then ends straight away with ConnectionError,
         rather than once the step finishes (e.g. a query's replies, up to the timeout)."""
-        pending = self._still_pending(connection)
+        try:
+            pending = self._still_pending(connection)
+        except ConnectionError:
+            step.close()  # never started: close it, or Python warns it was never awaited
+            raise
         task = asyncio.ensure_future(step)
         try:
             await asyncio.wait({task, pending.lost}, return_when=asyncio.FIRST_COMPLETED)
