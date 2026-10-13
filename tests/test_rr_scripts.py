@@ -107,6 +107,30 @@ async def test_rr_reply_run_with_time_stamp_prefixes_requests(capsys):
 
 
 @pytest.mark.asyncio
+async def test_rr_reply_run_omits_duplicate_request_subjects(capsys):
+    node, port = await start_node()
+    task = asyncio.ensure_future(
+        rr_reply.run("127.0.0.1", port, ["svc", "svc"], "ok", time_stamp=False)
+    )
+    requester = RequestReplyClient()
+    replies = []
+    try:
+        await asyncio.sleep(0.1)
+        await requester.connect("127.0.0.1", port)
+        await requester.send_request(
+            "svc", b"hi", lambda *args: replies.append(args[1:]), timeout=0
+        )
+        await asyncio.sleep(0.1)
+
+        assert capsys.readouterr().out.splitlines() == ["svc: hi"]
+        assert replies == [(b"Reply for svc: ok", ReplyStatus.REPLY)]
+    finally:
+        await requester.close()
+        await stop(task)
+        await node.close()
+
+
+@pytest.mark.asyncio
 async def test_rr_request_run_stops_after_first_reply_without_continue_waiting(capsys):
     node, port = await start_node()
     replier = RequestReplyClient()

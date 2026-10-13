@@ -72,7 +72,7 @@ async def run(
 
     async def body() -> None:
         await connect(client, host, port)
-        for request_subject in request_subjects:
+        for request_subject in dict.fromkeys(request_subjects):  # duplicates omitted
             await client.accept_request(request_subject, on_request)
         await asyncio.Event().wait()
 

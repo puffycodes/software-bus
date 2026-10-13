@@ -101,7 +101,7 @@ Functionalities
 
 - Create an instance of Base Layer Client Class.
 - Connect to an upstream bl_server.
-    - parameter --upstream ip:port (default: as per default in Base Layer Node Class)
+    - parameter --upstream ip:port (default: as per default in Base Layer Client Class)
 - Send messages.
     - parameter --message "message to be sent" (default: None, don't send any message)
     - parameter --repeat-count n (default: 1)

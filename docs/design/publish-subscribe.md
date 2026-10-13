@@ -198,7 +198,7 @@ A node that is checking therefore answers every query it receives with unknown:
 
 - Create an instance of the Publish and Subscribe Client Class.
 - Connect to an upstream server.
-    - parameter --upstream ip:port (default: as per default in Base Layer Node Class)
+    - parameter --upstream ip:port (default: as per default in Base Layer Client Class)
 - Subscribe to one or more subjects
     - parameter --subject "<subject_1>,<subject_2>,..." (required)
     - print the matched subject, the actual subject and the payload received with the publish message with an optional time stamp
@@ -211,7 +211,7 @@ A node that is checking therefore answers every query it receives with unknown:
 
 - Create an instance of the Publish and Subscribe Client Class.
 - Connect to an upstream server.
-    - parameter --upstream ip:port (default: as per default in Base Layer Node Class)
+    - parameter --upstream ip:port (default: as per default in Base Layer Client Class)
 - Publish messages.
     - parameter --subject "subject to publish to" (required)
     - parameter --message "message to publish" (required)

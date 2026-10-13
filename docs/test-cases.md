@@ -1,6 +1,6 @@
 # Test Cases
 
-All 346 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 347 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -267,12 +267,13 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - An unreachable server raises "cannot connect".
   - The server going away partway through the repeats raises "connection lost".
 
-## Request/reply scripts (`test_rr_scripts.py`, 20 cases)
+## Request/reply scripts (`test_rr_scripts.py`, 21 cases)
 - **`rr_reply`**
   - `--accept-request` and `--reply-message` are both required.
   - Comma-separated request subjects are parsed, and the time stamp is on by default.
   - It prints each request as `request_subject: payload` (an empty payload too) and replies with `Reply for request_subject: reply_message`, on each subject it accepts.
   - With the time stamp on, each printed request starts with it.
+  - A request subject listed twice is accepted once: each request is printed and replied to once.
   - The server going away raises "connection lost".
 - **`rr_request`**
   - `--request-subject` is required.

@@ -174,9 +174,10 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
 
 - Create an instance of the Request and Reply Client Class.
 - Connect to an upstream server.
-    - parameter --upstream ip:port (default: as per default in Base Layer Node Class)
+    - parameter --upstream ip:port (default: as per default in Base Layer Client Class)
 - Accept requests.
     - parameter --accept-request "<request_subject_1>,<request_subject_2>,..." (required)
+        - A request subject listed more than once is accepted once: the duplicates are omitted, so each request is printed and replied to once.
 - Reply to requests.
     - print the request subject and the payload of the received request, as "<request_subject>: <request_payload>", with an optional time stamp
         - parameter --time-stamp true|false (default: true)
@@ -193,7 +194,7 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
 
 - Create an instance of the Request and Reply Client Class.
 - Connect to an upstream server.
-    - parameter --upstream ip:port (default: as per default in Base Layer Node Class)
+    - parameter --upstream ip:port (default: as per default in Base Layer Client Class)
 - Send a request.
     - parameter --request-subject "request_subject" (required)
     - parameter --request-message "request_message" (default: empty, i.e. an empty request payload)
