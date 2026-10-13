@@ -339,7 +339,7 @@ async def main():
     replier = RequestReplyClient()
     await replier.connect("127.0.0.1", 8787)
 
-    async def on_request(reply_subject, payload):
+    async def on_request(request_subject, reply_subject, payload):
         await replier.send_reply(reply_subject, payload.upper())
 
     await replier.accept_request("svc.echo", on_request)
@@ -384,6 +384,8 @@ How a request's wait for replies works:
 - A client that accepts requests on a subject also receives its own
   requests to it, and its reply can arrive before `send_request` returns.
 
+The request callback is called with `(request_subject, reply_subject,
+payload)`, so one callback can accept requests on several subjects.
 `stop_accept_request(subject, callback)` removes one acceptor, so keep a
 reference to the function you accepted with. Callbacks can be sync or
 async; one that raises is logged (a failing reply callback counts as
@@ -518,7 +520,7 @@ If installed (`pip install -e .`), these are also available as the
 required, comma-separated request subjects (`--accept-request`; no `*`
 wildcards), prints `request_subject: request_payload` for each request it
 receives (with a time stamp by default; `--time-stamp false` to omit it),
-and replies with `request_subject: reply_message` (`--reply-message`,
+and replies with `Reply for request_subject: reply_message` (`--reply-message`,
 required):
 
 ```
@@ -531,7 +533,7 @@ and prints `request_subject: reply_payload` for each reply:
 
 ```
 $ python -m software_bus.rr_request --upstream 127.0.0.1:8787 --request-subject svc.echo --request-message ping --continue-waiting false
-[2026-10-12T16:51:13.801415] svc.echo: svc.echo: pong
+[2026-10-12T16:51:13.801415] svc.echo: Reply for svc.echo: pong
 ```
 
 - `--continue-waiting true` (the default) keeps printing replies until

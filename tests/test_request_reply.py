@@ -127,8 +127,8 @@ async def test_request_reaches_acceptor_and_reply_ends_the_wait():
     requester = await connected_client(port)
     requests, replies = [], []
     try:
-        async def on_request(reply_subject, payload):
-            requests.append((reply_subject, payload))
+        async def on_request(request_subject, reply_subject, payload):
+            requests.append((request_subject, reply_subject, payload))
             await replier.send_reply(reply_subject, payload.upper())
 
         await replier.accept_request("svc.echo", on_request)
@@ -142,9 +142,34 @@ async def test_request_reaches_acceptor_and_reply_ends_the_wait():
         await asyncio.sleep(0.5)  # past the timeout: no TIMED_OUT call may follow
 
         assert handle.startswith("_reply.svc.echo.")
-        assert requests == [(handle, b"hi")]
+        assert requests == [("svc.echo", handle, b"hi")]
         assert replies == [(handle, b"HI", REPLY)]
         assert handle not in subscribed_subjects(requester)
+    finally:
+        await requester.close()
+        await replier.close()
+        await node.close()
+
+
+@pytest.mark.asyncio
+async def test_one_callback_accepting_several_subjects_gets_each_request_subject():
+    node, port = await start_node()
+    replier = await connected_client(port)
+    requester = await connected_client(port)
+    requests = []
+    try:
+        def on_request(request_subject, reply_subject, payload):
+            requests.append((request_subject, reply_subject, payload))
+
+        await replier.accept_request("svc.a", on_request)
+        await replier.accept_request("svc.b", on_request)
+        await asyncio.sleep(0.05)
+
+        first = await requester.send_request("svc.a", b"1", lambda *args: None, timeout=0)
+        second = await requester.send_request("svc.b", b"2", lambda *args: None, timeout=0)
+        await asyncio.sleep(0.1)
+
+        assert requests == [("svc.a", first, b"1"), ("svc.b", second, b"2")]
     finally:
         await requester.close()
         await replier.close()
@@ -159,7 +184,7 @@ async def test_every_acceptor_replies_and_the_wait_lasts_until_the_timeout():
     replies = []
     try:
         for index, replier in enumerate(repliers):
-            async def on_request(reply_subject, payload, replier=replier, index=index):
+            async def on_request(request_subject, reply_subject, payload, replier=replier, index=index):
                 await replier.send_reply(reply_subject, b"r%d" % index)
 
             await replier.accept_request("svc", on_request)
@@ -186,7 +211,7 @@ async def test_client_receives_its_own_request_and_reply_before_send_request_ret
     client = await connected_client(port)
     replies = []
     try:
-        async def on_request(reply_subject, payload):
+        async def on_request(request_subject, reply_subject, payload):
             await client.send_reply(reply_subject, b"own")
 
         await client.accept_request("svc", on_request)
@@ -234,7 +259,7 @@ async def test_timeout_zero_waits_until_cancelled_and_cancel_calls_nothing():
     requester = await connected_client(port)
     reply_subjects, replies = [], []
     try:
-        await replier.accept_request("svc", lambda reply_subject, payload: reply_subjects.append(reply_subject))
+        await replier.accept_request("svc", lambda request_subject, reply_subject, payload: reply_subjects.append(reply_subject))
         await asyncio.sleep(0.05)
         handle = await requester.send_request("svc", b"", lambda *args: replies.append(args), timeout=0)
         await asyncio.sleep(0.2)
@@ -397,7 +422,7 @@ async def test_failing_reply_callback_keeps_the_wait(caplog):
     requester = await connected_client(port)
     replies = []
     try:
-        async def on_request(reply_subject, payload):
+        async def on_request(request_subject, reply_subject, payload):
             await replier.send_reply(reply_subject, b"1")
             await replier.send_reply(reply_subject, b"2")
 
@@ -430,7 +455,10 @@ async def test_timeout_during_a_running_reply_callback_ends_the_wait_once():
     events = []
     try:
         await replier.accept_request(
-            "svc", lambda reply_subject, payload: asyncio.ensure_future(replier.send_reply(reply_subject, b"r"))
+            "svc",
+            lambda request_subject, reply_subject, payload: asyncio.ensure_future(
+                replier.send_reply(reply_subject, b"r")
+            ),
         )
         await asyncio.sleep(0.05)
 
@@ -458,11 +486,11 @@ async def test_accept_and_stop_accept_per_callback(caplog):
     requester = await connected_client(port)
     first, second = [], []
 
-    def on_first(reply_subject, payload):
+    def on_first(request_subject, reply_subject, payload):
         first.append(payload)
         raise RuntimeError("first failed")
 
-    def on_second(reply_subject, payload):
+    def on_second(request_subject, reply_subject, payload):
         second.append(payload)
 
     try:

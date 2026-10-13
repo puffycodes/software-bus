@@ -44,8 +44,8 @@ _UNIQUE_ID_ALPHABET = string.digits + string.ascii_uppercase + string.ascii_lowe
 _WILDCARD = "*"
 DEFAULT_TIMEOUT = 5 * 60.0
 
-ReceivedRequestCallback = Callable[[str, bytes], Any]
-"""Called with (reply_subject, request_payload)."""
+ReceivedRequestCallback = Callable[[str, str, bytes], Any]
+"""Called with (request_subject, reply_subject, request_payload)."""
 
 
 
@@ -204,7 +204,8 @@ class RequestReplyClient:
         await self._client.close()
 
     async def accept_request(self, request_subject: str, callback: ReceivedRequestCallback) -> None:
-        """Call `callback(reply_subject, request_payload)` for every request sent to `request_subject`."""
+        """Call `callback(request_subject, reply_subject, request_payload)` for every request
+        sent to `request_subject`."""
         subject = derived_request_subject(request_subject)
         _check_request_subject(request_subject, subject)
         key = (request_subject, callback)
@@ -225,7 +226,7 @@ class RequestReplyClient:
                 )
                 return
             try:
-                await _maybe_await(callback(message.reply_subject, message.payload))
+                await _maybe_await(callback(request_subject, message.reply_subject, message.payload))
             except Exception:
                 logger.exception("Received request callback for %r failed", request_subject)
 

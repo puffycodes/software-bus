@@ -78,7 +78,10 @@ async def test_rr_reply_run_prints_requests_and_replies(capsys):
         await asyncio.sleep(0.1)
 
         assert capsys.readouterr().out.splitlines() == ["svc.a: one", "svc.b: "]
-        assert replies == [(b"svc.a: ok", ReplyStatus.REPLY), (b"svc.b: ok", ReplyStatus.REPLY)]
+        assert replies == [
+            (b"Reply for svc.a: ok", ReplyStatus.REPLY),
+            (b"Reply for svc.b: ok", ReplyStatus.REPLY),
+        ]
     finally:
         await requester.close()
         await stop(task)
@@ -110,7 +113,7 @@ async def test_rr_request_run_stops_after_first_reply_without_continue_waiting(c
     try:
         await replier.connect("127.0.0.1", port)
 
-        async def on_request(reply_subject, payload):
+        async def on_request(request_subject, reply_subject, payload):
             await replier.send_reply(reply_subject, b"first:" + payload)
             await replier.send_reply(reply_subject, b"second")
 
@@ -135,7 +138,7 @@ async def test_rr_request_run_with_continue_waiting_prints_every_reply_until_the
     try:
         await replier.connect("127.0.0.1", port)
 
-        async def on_request(reply_subject, payload):
+        async def on_request(request_subject, reply_subject, payload):
             await replier.send_reply(reply_subject, b"1")
             await replier.send_reply(reply_subject, b"2")
 
@@ -172,7 +175,7 @@ async def test_rr_request_and_rr_reply_work_together(capsys):
         await rr_request.run(
             "127.0.0.1", port, "svc", "ping", timeout=5, continue_waiting=False, time_stamp=False
         )
-        assert capsys.readouterr().out.splitlines() == ["svc: ping", "svc: svc: pong"]
+        assert capsys.readouterr().out.splitlines() == ["svc: ping", "svc: Reply for svc: pong"]
     finally:
         await stop(replier)
         await node.close()

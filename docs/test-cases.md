@@ -1,6 +1,6 @@
 # Test Cases
 
-All 345 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 346 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -162,7 +162,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A node that adds two links at once checks them one at a time.
   - Two nodes adding links at the same time can't close a cycle between them.
 
-## Request/reply (`test_request_reply.py`, 38 cases)
+## Request/reply (`test_request_reply.py`, 39 cases)
 - **Wire format and subjects (17 cases)**
   - A Request Message has exactly the byte layout in `data-format.md`, and survives encoding and decoding unchanged.
   - A Request Message with an empty payload, and one with binary content and a non-ASCII reply subject, survive encoding and decoding (2 cases).
@@ -174,7 +174,8 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A wildcard request subject, a derived subject over the length limit, a negative timeout and an invalid reply subject are all rejected with an error, leaving nothing subscribed or registered.
   - The longest request subjects allowed (65526 bytes to accept requests, 65495 bytes to send one) are accepted.
 - **Requests and replies**
-  - A request reaches an acceptor in another client, the reply reaches the requester, and returning true ends the wait: the reply subscription is removed and no `TIMED_OUT` call follows.
+  - A request reaches an acceptor in another client, which gets its request subject, reply subject and payload; the reply reaches the requester, and returning true ends the wait: the reply subscription is removed and no `TIMED_OUT` call follows.
+  - One callback accepting requests on two subjects is told which request subject each request was sent to.
   - Every acceptor gets the request and replies, and a requester that never returns true gets every reply (each with `REPLY`), then one `TIMED_OUT` call when the timeout ends the wait.
   - A client that accepts requests gets its own request, and the reply reaches it before `send_request` returns; the timer, started before the request was published, is cancelled and never fires.
   - A request nobody answers ends with one call with the reply subject, an empty payload and `TIMED_OUT`, and its subscription removed.
@@ -270,7 +271,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
 - **`rr_reply`**
   - `--accept-request` and `--reply-message` are both required.
   - Comma-separated request subjects are parsed, and the time stamp is on by default.
-  - It prints each request as `request_subject: payload` (an empty payload too) and replies with `request_subject: reply_message`, on each subject it accepts.
+  - It prints each request as `request_subject: payload` (an empty payload too) and replies with `Reply for request_subject: reply_message`, on each subject it accepts.
   - With the time stamp on, each printed request starts with it.
   - The server going away raises "connection lost".
 - **`rr_request`**

@@ -69,6 +69,7 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
         - A **request subject** to accept requests on.
         - A function that is the **received request callback**.
             - The function takes the following parameters:
+                - The **request subject** that this request was sent to.
                 - The **reply subject** to reply to the requestor.
                 - The **request payload** from the requestor.
     - Actions:
@@ -81,7 +82,8 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
                     - If the payload is a malformed Request Message (see `data-format.md`), log it and ignore it. The **received request callback** is not called.
                     - Likewise, if the **reply subject** is not a **Valid Reply Subject** whose sub-strings between `_reply` and the **unique_id** are the **request subject**, log the request and ignore it.
                 - The **request payload** could be empty.
-                - Call the **received request callback** with the **reply subject** and the **request payload**.
+                - Call the **received request callback** with the **request subject**, the **reply subject** and the **request payload**.
+                    - The **request subject** passed is the one given to Accept Request, not the **Derived Request Subject** that the subscription callback receives as its actual subject. Since a **request subject** contains no wild card, the two differ only by the `_request.` prefix.
     - Notes (intended behaviour):
         - Every **received request callback** accepting requests on a **request subject**, in every client, receives every request sent to it. A requestor can therefore get several replies; it ends the wait when it has the replies it wants.
         - A client that accepts requests on a **request subject** also receives its own requests sent to that subject (see Publish in `publish-subscribe.md`).
@@ -178,7 +180,7 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
 - Reply to requests.
     - print the request subject and the payload of the received request, as "<request_subject>: <request_payload>", with an optional time stamp
         - parameter --time-stamp true|false (default: true)
-    - reply with the payload "<request_subject>: <reply_message>"
+    - reply with the payload "Reply for <request_subject>: <reply_message>"
         - parameter --reply-message "reply_message" (required)
 - Exit with an error message and exit status 1 if:
     - a request subject is invalid (see **Parameter Checks**, e.g. it contains a wild card or is too long),

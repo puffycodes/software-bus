@@ -17,7 +17,7 @@ from ._cli import (
     run_until_connection_lost,
     run_until_interrupted,
 )
-from .request_reply import ReceivedRequestCallback, RequestReplyClient, check_request_subject
+from .request_reply import RequestReplyClient, check_request_subject
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -35,7 +35,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--reply-message",
         required=True,
-        help='message to reply with; the reply is "<request_subject>: <reply_message>"',
+        help='message to reply with; the reply is "Reply for <request_subject>: <reply_message>"',
     )
     parser.add_argument(
         "--time-stamp",
@@ -64,21 +64,16 @@ async def run(
 
     client = RequestReplyClient()
 
-    def on_request_for(request_subject: str) -> ReceivedRequestCallback:
-        reply = f"{request_subject}: {reply_message}".encode()
-
-        async def on_request(reply_subject: str, payload: bytes) -> None:
-            print_received(
-                f"{request_subject}: {payload.decode(errors='replace')}", time_stamp
-            )
-            await client.send_reply(reply_subject, reply)
-
-        return on_request
+    async def on_request(request_subject: str, reply_subject: str, payload: bytes) -> None:
+        print_received(f"{request_subject}: {payload.decode(errors='replace')}", time_stamp)
+        await client.send_reply(
+            reply_subject, f"Reply for {request_subject}: {reply_message}".encode()
+        )
 
     async def body() -> None:
         await connect(client, host, port)
         for request_subject in request_subjects:
-            await client.accept_request(request_subject, on_request_for(request_subject))
+            await client.accept_request(request_subject, on_request)
         await asyncio.Event().wait()
 
     try:
