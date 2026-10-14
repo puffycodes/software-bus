@@ -110,6 +110,13 @@ async def test_parameter_checks_reject_and_change_nothing():
 
 
 @pytest.mark.asyncio
+async def test_send_reply_when_not_connected_raises():
+    client = RequestReplyClient()
+    with pytest.raises(RuntimeError):
+        await client.send_reply(f"_reply.a.{ID}", b"x")
+
+
+@pytest.mark.asyncio
 async def test_subjects_at_the_length_limits_are_accepted():
     node, port = await start_node()
     client = await connected_client(port)

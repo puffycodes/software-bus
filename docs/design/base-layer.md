@@ -31,7 +31,9 @@ Functionalities
     - The instance can accept connections on multiple IP/port pairs.
     - The instance will not be accepting connections on any IP/port when it is instantiated.
     - If the instance is already accepting connections on the given IP/port, this will do nothing.
+    - If it cannot accept connections on the given IP/port (e.g. the address is already in use, or not one of this machine's), report the error to the caller. The IP/port is not added to the list, and nothing else changes.
 - **Establish Connection** Create a TCP connection to an upstream instance.
+    - If the connection cannot be made (e.g. nothing accepts connections at that address), report the error to the caller. Nothing is added to the list of upstream connections, and no callback is called.
 
 - **Register Upstream Receive Callback** Provide a function to call when data are received from any of the upstream connections.
     - A default upstream receive callback will be registered during instantiation.
@@ -88,6 +90,7 @@ Functionalities
     - Data still waiting in a send queue, or not yet taken by the operating system, is discarded, not sent: Close does not wait for slow peers.
     - Afterwards the lists of IP/port and of connections are empty.
     - Closing the node itself is not an error, and does not call the connection error callbacks. (The peers at the other end of the connections do see them dropped.)
+    - A closed node is not meant to be used again: to accept or establish connections after Close, create a new instance. What happens if a closed node is used again is not defined. (Clients differ: a client can Connect again after Close, see Base Layer Client Class.)
 - **Internal Data** Keep the following lists:
     - a list of IP/port that it is accepting connections on.
     - a list of upstream connections.

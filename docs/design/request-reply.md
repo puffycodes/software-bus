@@ -174,6 +174,7 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
         - The **reply payload**.
     - Actions:
         - Publish the **reply payload** to the **reply subject**.
+    - **Upon failure** If publishing fails (e.g. the client is not connected, or the connection fails while sending), report the error to the caller, as Publish does (see `publish-subscribe.md`). Nothing is retried: the requestor's wait ends by its timeout or by another reply.
 
 ## rr_reply Script
 

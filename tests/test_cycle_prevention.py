@@ -951,6 +951,26 @@ async def test_two_nodes_adding_links_at_the_same_time_cannot_close_a_cycle():
 
 
 @pytest.mark.asyncio
+async def test_a_second_hello_replaces_the_node_id_of_the_connection():
+    node, port = await _start_node()
+    peer = None
+    try:
+        peer = await open_peer_connection("127.0.0.1", port)
+        await expect_hello(peer)
+        first, second = uuid.uuid4().bytes, uuid.uuid4().bytes
+
+        await peer.send(encode_message(HelloMessage(first)))
+        await wait_until(lambda: list(node._peer_node_ids.values()) == [first])
+        await peer.send(encode_message(HelloMessage(second)))
+        await wait_until(lambda: list(node._peer_node_ids.values()) == [second])
+        assert len(node._active_node_connections()) == 1  # still the one node connection
+    finally:
+        await node.close()
+        if peer is not None:
+            await peer.close()
+
+
+@pytest.mark.asyncio
 async def test_client_ignores_hello_quietly(caplog):
     node, port = await _start_node()
     client = PubSubClient()

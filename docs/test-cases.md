@@ -1,6 +1,6 @@
 # Test Cases
 
-All 409 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 414 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -17,16 +17,18 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Only a whole `*` part is a wildcard: `ab` doesn't match `a*`, which only matches `a*` itself.
   - Empty parts count like any other part: `a..b` matches `a.*.b` and `a..b`, `a.b` doesn't match `a..b`, `a.` matches `a.*`, and `a` doesn't match `a.*`.
 
-## Base layer node (`test_base_layer.py`, 33 cases)
+## Base layer node (`test_base_layer.py`, 35 cases)
 - **Setup and listening**
   - A new node isn't listening and has no connections.
   - Listening with no arguments uses the default address, 127.0.0.1:8787.
   - A node can listen on several addresses at once.
   - Asking to listen on an address it already listens on does nothing.
   - Using the node in an `async with` block starts it listening, and closes it at the end.
+  - Listening on an address already in use raises an error and records nothing.
 - **Connecting**
   - Two nodes can connect, and each records the connection on the correct side (upstream or downstream).
   - The "new connection" callbacks are called for both new upstream and new downstream connections.
+  - Connecting to an address nobody listens on raises an error, records no connection and calls no callback.
 - **Framing**
   - Each message is sent as a 4-byte big-endian length followed by the payload, and an empty payload is just the 4-byte length.
   - Message boundaries are kept however TCP delivers the bytes: several messages (one of them empty) in a single read, and one message split in the middle of its length and of its payload.
@@ -83,7 +85,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A send the node doesn't take within the send timeout fails: it's reported to the connection error callback and raised.
   - A message announcing more than 16 MiB loses the connection, without waiting for the payload.
 
-## Publish/subscribe (`test_pubsub.py`, 69 cases)
+## Publish/subscribe (`test_pubsub.py`, 70 cases)
 - **Wire format (20 cases)**
   - Subscription and publish messages have exactly the byte layout in `data-format.md`, including a subject's length counted in UTF-8 bytes.
   - Bytes after a subscription's subject are ignored.
@@ -131,6 +133,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A subscription arriving from upstream is passed downstream and to other upstream connections.
   - A node that joins late is told about the subscriptions that already exist.
   - A subscription passed on to a sibling client is just logged by that client.
+  - A connection that subscribes to the same subject twice is tagged once: both subscriptions are passed on, and one unsubscribe removes it.
 - **Unsubscribing**
   - Unsubscribing stops delivery and is passed upstream.
   - An unsubscribe isn't passed on while other subscribers to the subject remain.
@@ -148,7 +151,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A client logs and ignores reachability queries and replies (not as malformed), replies nothing, and keeps receiving.
   - A client's connection error callback is called when its node goes away.
 
-## Cycle prevention (`test_cycle_prevention.py`, 52 cases)
+## Cycle prevention (`test_cycle_prevention.py`, 53 cases)
 - **Wire format (15 cases)**
   - Hello, query and reply messages (all three results) survive encoding and decoding unchanged (5 cases).
   - Their byte layout is exactly as specified.
@@ -192,11 +195,12 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A query arriving on a connection still being checked while the node is running a check of its own is answered "unknown".
   - A reply that arrives after the query has been answered is ignored.
   - A client quietly ignores Hello messages.
+  - A second Hello on a connection replaces its Node ID, and it stays a single node connection.
 - **Links added at the same time**
   - A node that adds two links at once checks them one at a time.
   - Two nodes adding links at the same time can't close a cycle between them.
 
-## Request/reply (`test_request_reply.py`, 42 cases)
+## Request/reply (`test_request_reply.py`, 43 cases)
 - **Wire format and subjects (17 cases)**
   - A Request Message has exactly the byte layout in `data-format.md`, and survives encoding and decoding unchanged.
   - A Request Message with an empty payload, and one with binary content and a non-ASCII reply subject, survive encoding and decoding (2 cases).
@@ -221,6 +225,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Losing the connection ends every pending request with a `CONNECTION_LOST` call, then calls the connection error callback.
   - Sending a request when not connected raises an error, calls nothing and leaves nothing behind.
   - Accepting requests when not connected raises an error and leaves nothing registered or subscribed.
+  - Sending a reply when not connected raises an error.
   - Stopping an acceptor after the connection is lost raises an error, but the acceptor is still forgotten and its subscription removed locally.
   - An acceptor keeps accepting requests after its client is closed and connects again.
   - Losing the connection while a request is being sent is reported once, as an error from `send_request`; only requests already sent get a `CONNECTION_LOST` call.

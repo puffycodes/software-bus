@@ -6,7 +6,7 @@ import pytest
 from software_bus import BaseLayerNode
 from software_bus.base_layer import MAX_PAYLOAD_LENGTH, ConnectionTooSlow, ReceivedTooLong
 
-from helpers import accept_one_peer_connection, open_peer_connection
+from helpers import accept_one_peer_connection, free_port, open_peer_connection
 
 _open_peer_connection = open_peer_connection
 _accept_one_peer_connection = accept_one_peer_connection
@@ -841,3 +841,36 @@ async def test_closing_a_node_does_not_wait_for_a_peer_that_stopped_reading():
         await hub.close()
         if stalled is not None:
             stalled.writer.transport.abort()
+
+
+# --- failing to listen or connect --------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_accepting_on_an_address_in_use_raises_and_changes_nothing():
+    occupier = await asyncio.start_server(lambda reader, writer: None, "127.0.0.1", 0)
+    busy_port = occupier.sockets[0].getsockname()[1]
+    hub = BaseLayerNode()
+    try:
+        with pytest.raises(OSError):
+            await hub.accept_connection("127.0.0.1", busy_port)
+        assert hub.listening_addresses == []
+        assert not hub.is_accepting("127.0.0.1", busy_port)
+    finally:
+        await hub.close()
+        occupier.close()
+        await occupier.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_establishing_a_connection_to_an_unreachable_address_raises_and_changes_nothing():
+    hub = BaseLayerNode()
+    new_connections = []
+    hub.register_upstream_new_connection_callback(new_connections.append)
+    try:
+        with pytest.raises(OSError):
+            await hub.establish_connection("127.0.0.1", free_port())
+        assert hub.upstream_connections == []
+        assert new_connections == []
+    finally:
+        await hub.close()

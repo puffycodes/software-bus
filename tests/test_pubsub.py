@@ -1555,3 +1555,33 @@ async def test_client_unsubscribe_of_unknown_subject_or_callback_changes_nothing
         await client.close()
         server.close()
         await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_a_connection_that_subscribes_twice_is_tagged_once():
+    node, port = await _start_node()
+    subscriber = other = None
+    try:
+        subscriber = await open_peer_connection("127.0.0.1", port)
+        other = await open_peer_connection("127.0.0.1", port)
+        await expect_hello(subscriber)
+        await expect_hello(other)
+
+        for _ in range(2):
+            await subscriber.send(encode_message(SubscriptionMessage("a.b", subscribe=True)))
+        # passed on each time (redundant, but harmless)
+        for _ in range(2):
+            message = decode_message(await asyncio.wait_for(other.receive(), timeout=1))
+            assert message == SubscriptionMessage("a.b", subscribe=True)
+        assert len(node._downstream_subscriptions["a.b"]) == 1
+
+        # so one unsubscribe removes it
+        await subscriber.send(encode_message(SubscriptionMessage("a.b", subscribe=False)))
+        message = decode_message(await asyncio.wait_for(other.receive(), timeout=1))
+        assert message == SubscriptionMessage("a.b", subscribe=False)
+        assert "a.b" not in node._downstream_subscriptions
+    finally:
+        await node.close()
+        for peer in (subscriber, other):
+            if peer is not None:
+                await peer.close()

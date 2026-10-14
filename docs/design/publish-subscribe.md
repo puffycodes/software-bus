@@ -43,6 +43,7 @@
     - For an established (upstream) connection: the connection is pending until the cycle check accepts it. Send the subscription messages above only once it is accepted.
 - **Message Processing**
     - Upon receiving a Hello, Reachability Query or Reachability Reply message, follow Cycle Prevention.
+        - A node sends exactly one Hello message on each connection (see New Connection). If another Hello message arrives on the same connection, the Node ID it carries replaces the one received before, and the connection is a node connection from then on. A cycle check that already used the earlier Node ID is not run again. Since every node is trusted (see Trust), this only happens if a node does not follow this spec.
     - Upon receiving a subscription or publish message on a pending connection, keep it, in the order received, without processing it. Process the kept messages in order if the connection is accepted; discard them if it is refused.
     - Upon receiving of a subscription message with subscribe content.
         - If the message comes from a downstream connection:
@@ -53,6 +54,8 @@
             - Add the connection to the upstream connection list tagged to the subject.
             - Send a subscription message to all downstream connections, if any.
             - Send a subscription message to all other upstream connections, except the one from which the message is received from.
+        - If the connection is already tagged to the subject, it stays tagged once: one unsubscribe message from it then removes it, however many subscribe messages it sent.
+            - The subscription message is still sent on as above. This is redundant, since the other nodes already know about the subject, but harmless: each of them also tags the sender only once.
     - Upon receiving of a subscription message with unsubscribe content.
         - If the message comes from a downstream connection:
             - Remove the connection from the downstream connection list tagged to the subject.
@@ -80,6 +83,7 @@
 - **Close** Close the Base Layer Node (which stops accepting connections and closes every connection), stop answering any reachability queries still in progress, and forget every subscription.
     - A cycle check still running ends as if its connection had failed, so Establish Connection reports an error to its caller straight away.
     - Closing the node is not an error on its connections, so it sends no unsubscribe messages (see Exception Handling).
+    - As for the Base Layer Node, a closed node is not meant to be used again (see Close in `base-layer.md`).
 
 ## Cycle Prevention
 
