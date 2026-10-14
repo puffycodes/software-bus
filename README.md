@@ -110,7 +110,10 @@ hub.register_downstream_receive_callback(
 
 If a receive callback raises an exception, the node logs it with its
 traceback and carries on with the next message: the connection is kept, and
-this doesn't count as a connection error.
+this doesn't count as a connection error. The same goes for every callback
+you register: a failing new-connection callback keeps the connection (and
+`establish_connection` still returns it), and a failing connection error
+callback doesn't stop the connection being removed and closed.
 
 When a connection drops, or a send/receive on it fails, it's removed from
 `upstream_connections`/`downstream_connections` and an upstream or
@@ -227,7 +230,8 @@ resumes them. Pending requests don't carry over: they end with
 
 As on a node, an exception raised by the receive callback is logged and
 costs only that one message: the client stays connected and keeps
-receiving.
+receiving. A connection error callback that raises is logged too, and a
+failed `send` still raises its own error, not the callback's.
 
 ### `PubSubNode` and `PubSubClient` — publish/subscribe
 

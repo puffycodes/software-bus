@@ -11,6 +11,7 @@ from .base_layer import (
     Connection,
     ConnectionErrorCallback,
     ConnectionTooSlow,
+    _call_logging_failure,
     _maybe_await,
     check_payload_length,
 )
@@ -109,7 +110,10 @@ class BaseLayerClient:
             return
         self.connection = None
         try:
-            await _maybe_await(self._connection_error_callback(connection, error))
+            # a failing callback mustn't replace the send error or escape the receive loop
+            await _call_logging_failure(
+                "Connection error callback", self._connection_error_callback, connection, error
+            )
         finally:
             await connection.close(discard_unsent=True)
 

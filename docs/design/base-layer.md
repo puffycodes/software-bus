@@ -21,6 +21,16 @@ The bus assumes that every process that connects to it is trusted and cooperativ
     - use up a node's resources, e.g. by opening many connections or making many subscriptions. The limits in these specs bound the size of a message and of a connection's send queue, but not the number of connections or subscriptions.
 - Protecting against such peers (e.g. authenticating peers, encrypting connections, or limiting who may subscribe or publish to a subject) would need changes to the wire format (`data-format.md`), and is not part of this design.
 
+## Callbacks
+
+These rules apply to every callback given to the Base Layer Node Class or the Base Layer Client Class: receive callbacks, connection error callbacks and new connection callbacks.
+
+- A callback can be either synchronous or asynchronous.
+- If a callback fails (raises an error), log the error with its details, and then carry on exactly as if the callback had returned normally. A failing callback is not a connection error, does not close or drop a connection, and is not reported to the caller of the operation that triggered it.
+    - This is the same rule for every callback: a failure in code given to the bus costs only what that call was doing, never a connection.
+    - In particular, a failing callback never changes what an operation reports: Establish Connection still returns the new connection, and Send still reports its own failure, not the callback's.
+- A layer on top that registers its own callbacks (e.g. the Publish and Subscribe Node Class) is responsible for them; these rules are about the callbacks a user gives.
+
 ## Base Layer Node Class
 
 Functionalities
@@ -44,7 +54,7 @@ Functionalities
 - **Action Upon Receiving of Data** Action depends on the connection that the data is received from.
     - If the data is received from an upstream connections, call the upstream receive callback function with the data as a parameter.
     - If the data is received from a downstream connections, call the downstream receive callback function with the data as a parameter.
-    - If the callback fails (raises an error), log the error with its details and carry on with the next data. The connection is kept, and this is not a connection error.
+    - If the callback fails, follow Callbacks: log it and carry on with the next data. The connection is kept, and this is not a connection error.
 - **Sending Data** Whenever the node sends data to a connection (relaying, or on behalf of a layer on top):
     - If the data is longer than the maximum payload length, send nothing to any connection, and log an error. This is not a connection error: the connections are kept.
         - A node relays only data it has received, which is never longer than the limit, so this only happens when a layer on top sends too much.
@@ -65,8 +75,10 @@ Functionalities
         - Print a message to indicate that a downstream connection has error, with the necessary details.
 - **Register Upstream New Connection Callback** Provide a function to call, with the connection, when a new upstream connection is established.
     - Default is None, meaning not to call any function.
+    - If it fails, follow Callbacks: the connection is kept, and Establish Connection still returns it.
 - **Register Downstream New Connection Callback** Provide a function to call, with the connection, when a new downstream connection is accepted.
     - Default is None, meaning not to call any function.
+    - If it fails, follow Callbacks: the connection is kept.
 - **Exceptions Related to a Connection**
     - Handling the following exception types:
         - Peer dropped connection.
@@ -83,6 +95,7 @@ Functionalities
             - Remove the downstream connection from the list of downstream connections.
             - Call the downstream connection error callback with the connection details and error.
             - Close the downstream connection.
+    - If the connection error callback fails, follow Callbacks: the connection is still removed from its list and closed.
     - Closing a failed connection discards any data not sent yet on it, rather than waiting to send it.
 
 - **Close** Stop accepting connections on every IP/port, and close every upstream and downstream connection.
@@ -114,7 +127,7 @@ Functionalities
 - **Register Receive Callback** Provide a function to call when data are received.
     - Default is None, meaning not to call any function.
 - **Action Upon Receiving of Data** Call the given function, if any, with the data as one of the parameters.
-    - If the function fails (raises an error), log the error with its details and carry on with the next data. The connection is kept, and this is not a connection error.
+    - If the function fails, follow Callbacks (see above): log it and carry on with the next data. The connection is kept, and this is not a connection error.
 - **Register Connection Error Callback** Provide a function to call when there is error with the connection.
     - A default connection error callback will be registered during instantiation.
         - Print a message to indicate that the connection has error, with the necessary details.
@@ -129,6 +142,7 @@ Functionalities
         - Call the connection error callback with the connection details and error.
         - Close the connection.
         - If it was a failure to send, also report the failure to the caller of Send.
+    - If the connection error callback fails, follow Callbacks: the connection is still forgotten and closed, and a failure to send is still reported to the caller of Send as that failure.
     - Closing the client itself is not an error, and does not call the connection error callback.
 - **Close** Close the connection, if any. The client is then no longer connected.
 

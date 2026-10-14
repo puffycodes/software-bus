@@ -461,3 +461,50 @@ async def test_client_receiving_a_message_over_the_size_limit_loses_the_connecti
         await client.close()
         server.close()
         await server.wait_closed()
+
+
+def _raise(*args):
+    raise RuntimeError("callback bug")
+
+
+@pytest.mark.asyncio
+async def test_client_failing_connection_error_callback_still_raises_the_send_error(caplog):
+    hub = BaseLayerNode()
+    client = BaseLayerClient()
+    client.register_connection_error_callback(_raise)
+    try:
+        server = await hub.accept_connection(port=0)
+        connection = await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+
+        async def failing_send(data):
+            raise ConnectionResetError("simulated send failure")
+
+        connection.send = failing_send
+        with caplog.at_level(logging.ERROR, logger="software_bus.base_layer"):
+            with pytest.raises(ConnectionResetError):  # the error of the send, not the callback
+                await client.send(b"data")
+        assert client.connection is None
+        assert connection.writer.is_closing()
+        assert "Connection error callback failed" in caplog.text
+    finally:
+        await client.close()
+        await hub.close()
+
+
+@pytest.mark.asyncio
+async def test_client_failing_connection_error_callback_stays_out_of_the_receive_loop(caplog):
+    hub = BaseLayerNode()
+    client = BaseLayerClient()
+    client.register_connection_error_callback(_raise)
+    try:
+        server = await hub.accept_connection(port=0)
+        connection = await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+        with caplog.at_level(logging.ERROR, logger="software_bus.base_layer"):
+            await hub.close()  # the node goes away
+            await asyncio.wait_for(asyncio.wait({connection.background_task}), timeout=1)
+        assert client.connection is None
+        assert connection.background_task.exception() is None
+        assert "Connection error callback failed" in caplog.text
+    finally:
+        await client.close()
+        await hub.close()

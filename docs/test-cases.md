@@ -1,6 +1,6 @@
 # Test Cases
 
-All 414 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 421 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -17,7 +17,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Only a whole `*` part is a wildcard: `ab` doesn't match `a*`, which only matches `a*` itself.
   - Empty parts count like any other part: `a..b` matches `a.*.b` and `a..b`, `a.b` doesn't match `a..b`, `a.` matches `a.*`, and `a` doesn't match `a.*`.
 
-## Base layer node (`test_base_layer.py`, 35 cases)
+## Base layer node (`test_base_layer.py`, 40 cases)
 - **Setup and listening**
   - A new node isn't listening and has no connections.
   - Listening with no arguments uses the default address, 127.0.0.1:8787.
@@ -50,6 +50,12 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - An error callback can be an async function, for upstream and for downstream connections.
   - The default error callbacks log a message.
   - If sending to one connection fails while relaying, only that connection is removed; the others keep receiving.
+- **Failing callbacks**
+  - A failing upstream new-connection callback is logged, and the connection is kept: `establish_connection` still returns it, and data is relayed over it.
+  - A failing downstream new-connection callback is logged by the bus (not by asyncio's accept handler), and the connections are kept and relay.
+  - A failing connection error callback is logged, and a dropped connection is still removed and closed, with nothing escaping the relay loop.
+  - The same when a send fails: nothing escapes the send task.
+  - The same when a send queue would go over its limit: the failure isn't raised to the sending side, so it isn't mistaken for a failing receive callback there.
 - **Slow peers**
   - A peer that stops reading is dropped once a send to it takes longer than the send timeout, and the other peers get every message before and after.
   - A connection whose send queue would go over its limit is dropped; another connection sent the same message still gets it.
@@ -59,7 +65,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Closing a node doesn't report its own connections as errors, but the peer at the other end does see its connection dropped.
   - Closing a node twice, or closing one that never listened, does no harm.
 
-## Base layer client (`test_client.py`, 21 cases)
+## Base layer client (`test_client.py`, 23 cases)
 - **Connecting**
   - A new client isn't connected and has no receive callback.
   - The client's default address to connect to is the same as the node's default listening address.
@@ -84,6 +90,8 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A failed send is reported to the connection error callback and also raised to the caller.
   - A send the node doesn't take within the send timeout fails: it's reported to the connection error callback and raised.
   - A message announcing more than 16 MiB loses the connection, without waiting for the payload.
+  - A failing connection error callback is logged, and a failed send still raises its own error, not the callback's.
+  - A failing connection error callback after the node goes away is logged, and nothing escapes the receive loop.
 
 ## Publish/subscribe (`test_pubsub.py`, 70 cases)
 - **Wire format (20 cases)**

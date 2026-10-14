@@ -20,7 +20,7 @@ How this project is developed and tested. For the commands to install and run th
 - Script errors are subclasses of `ScriptError`, which a single wrapper turns into a one-line message and exit status 1. `bus_check` is the documented exception: it has its own exit codes.
 
 ### Error-handling rules
-- An exception in a receive callback loses only that message, never the connection.
+- An exception in a user callback is logged and loses only what that call was doing, never the connection: a receive callback loses one message, and a new-connection or connection error callback changes nothing at all.
 - Malformed messages raise `ValueError`, which is logged and the message skipped.
 - Inputs are checked before any state is changed. For example, `subscribe` encodes the subject before registering the callback, so a rejected subject leaves nothing behind.
 

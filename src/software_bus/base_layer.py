@@ -118,6 +118,15 @@ async def _maybe_await(result: Any) -> None:
         await result
 
 
+async def _call_logging_failure(what: str, callback: Callable[..., Any], *args: Any) -> None:
+    """Call a sync or async callback; if it raises, log it and carry on as if it
+    had returned (Callbacks in docs/design/base-layer.md)."""
+    try:
+        await _maybe_await(callback(*args))
+    except Exception:
+        logger.exception("%s failed", what)
+
+
 class BaseLayerNode:
     """Base layer of the software bus.
 
@@ -223,7 +232,9 @@ class BaseLayerNode:
         connection = self._start_connection(reader, writer, from_upstream=False)
         logger.info("Accepted downstream connection from %s", connection.address)
         if self._downstream_new_connection_callback is not None:
-            await _maybe_await(self._downstream_new_connection_callback(connection))
+            await _call_logging_failure(
+                "Downstream new connection callback", self._downstream_new_connection_callback, connection
+            )
 
     async def establish_connection(self, host: str, port: int) -> Connection:
         """Open a TCP connection to an upstream instance.
@@ -234,7 +245,9 @@ class BaseLayerNode:
         connection = self._start_connection(reader, writer, from_upstream=True)
         logger.info("Established upstream connection to %s:%s", host, port)
         if self._upstream_new_connection_callback is not None:
-            await _maybe_await(self._upstream_new_connection_callback(connection))
+            await _call_logging_failure(
+                "Upstream new connection callback", self._upstream_new_connection_callback, connection
+            )
         return connection
 
     def _start_connection(
@@ -298,7 +311,7 @@ class BaseLayerNode:
                 else self._downstream_connection_error_callback
             )
             try:
-                await _maybe_await(error_callback(connection, error))
+                await _call_logging_failure("Connection error callback", error_callback, connection, error)
             finally:
                 # release the socket; otherwise the server's wait_closed() never returns
                 await connection.close(discard_unsent=True)

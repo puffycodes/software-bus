@@ -6,7 +6,7 @@ import pytest
 from software_bus import BaseLayerNode
 from software_bus.base_layer import MAX_PAYLOAD_LENGTH, ConnectionTooSlow, ReceivedTooLong
 
-from helpers import accept_one_peer_connection, free_port, open_peer_connection
+from helpers import accept_one_peer_connection, free_port, open_peer_connection, wait_until
 
 _open_peer_connection = open_peer_connection
 _accept_one_peer_connection = accept_one_peer_connection
@@ -874,3 +874,144 @@ async def test_establishing_a_connection_to_an_unreachable_address_raises_and_ch
         assert new_connections == []
     finally:
         await hub.close()
+
+
+# --- failing callbacks ---------------------------------------------------------------------
+
+
+def _raise(*args):
+    raise RuntimeError("callback bug")
+
+
+@pytest.mark.asyncio
+async def test_failing_upstream_new_connection_callback_keeps_the_connection(caplog):
+    upstream = BaseLayerNode()
+    received = []
+    upstream.register_downstream_receive_callback(lambda source, data: received.append(data))
+    hub = BaseLayerNode()
+    hub.register_upstream_new_connection_callback(_raise)
+    peer = None
+    try:
+        server = await upstream.accept_connection(port=0)
+        with caplog.at_level(logging.ERROR, logger="software_bus.base_layer"):
+            connection = await hub.establish_connection(
+                "127.0.0.1", server.sockets[0].getsockname()[1]
+            )
+        assert hub.upstream_connections == [connection]
+        assert "new connection callback failed" in caplog.text
+
+        hub_server = await hub.accept_connection(port=0)
+        peer = await _open_peer_connection("127.0.0.1", hub_server.sockets[0].getsockname()[1])
+        await peer.send(b"still relayed")
+        await wait_until(lambda: received == [b"still relayed"])
+    finally:
+        await hub.close()
+        await upstream.close()
+        if peer is not None:
+            await peer.close()
+
+
+@pytest.mark.asyncio
+async def test_failing_downstream_new_connection_callback_keeps_the_connection(caplog):
+    hub = BaseLayerNode()
+    hub.register_downstream_new_connection_callback(_raise)
+    peer_a = peer_b = None
+    try:
+        server = await hub.accept_connection(port=0)
+        hub_port = server.sockets[0].getsockname()[1]
+        with caplog.at_level(logging.ERROR):
+            peer_a = await _open_peer_connection("127.0.0.1", hub_port)
+            peer_b = await _open_peer_connection("127.0.0.1", hub_port)
+            await wait_until(lambda: len(hub.downstream_connections) == 2)
+            await asyncio.sleep(0.05)
+        await peer_a.send(b"still relayed")
+        assert await asyncio.wait_for(peer_b.receive(), timeout=1) == b"still relayed"
+        # logged by the bus, not as an unexpected exception in the accept handler of asyncio
+        failures = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert len(failures) == 2
+        assert all(r.name == "software_bus.base_layer" for r in failures)
+    finally:
+        await hub.close()
+        for peer in (peer_a, peer_b):
+            if peer is not None:
+                await peer.close()
+
+
+@pytest.mark.asyncio
+async def test_failing_connection_error_callback_still_removes_and_closes_a_dropped_connection(caplog):
+    hub = BaseLayerNode()
+    hub.register_downstream_connection_error_callback(_raise)
+    peer = None
+    try:
+        server = await hub.accept_connection(port=0)
+        peer = await _open_peer_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        await wait_until(lambda: len(hub.downstream_connections) == 1)
+        (connection,) = hub.downstream_connections
+
+        with caplog.at_level(logging.ERROR, logger="software_bus.base_layer"):
+            await peer.close()
+            await asyncio.wait_for(asyncio.wait({connection.background_task}), timeout=1)
+
+        assert hub.downstream_connections == []
+        assert connection.writer.is_closing()
+        assert connection.background_task.exception() is None  # nothing escaped the relay loop
+        assert "Connection error callback failed" in caplog.text
+    finally:
+        await hub.close()
+
+
+@pytest.mark.asyncio
+async def test_failing_connection_error_callback_after_a_failed_send_stays_out_of_the_send_task(
+    monkeypatch, caplog
+):
+    hub = BaseLayerNode()
+    hub.register_downstream_connection_error_callback(_raise)
+    peer = None
+    try:
+        server = await hub.accept_connection(port=0)
+        peer = await _open_peer_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        await wait_until(lambda: len(hub.downstream_connections) == 1)
+        (connection,) = hub.downstream_connections
+
+        async def failing_send(data):
+            raise OSError("send failed")
+
+        monkeypatch.setattr(connection, "send", failing_send)
+        with caplog.at_level(logging.ERROR, logger="software_bus.base_layer"):
+            await hub._relay_to([connection], b"data")
+            await asyncio.wait_for(asyncio.wait({connection.send_task}), timeout=1)
+
+        assert hub.downstream_connections == []
+        assert connection.send_task.exception() is None
+        assert "Connection error callback failed" in caplog.text
+    finally:
+        await hub.close()
+        if peer is not None:
+            await peer.close()
+
+
+@pytest.mark.asyncio
+async def test_failing_connection_error_callback_for_a_full_send_queue_is_not_raised_to_the_sender(
+    caplog,
+):
+    hub = BaseLayerNode()
+    hub.send_queue_limit = 100
+    hub.register_downstream_connection_error_callback(_raise)
+    peer = None
+    try:
+        server = await hub.accept_connection(port=0)
+        peer = await _open_peer_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        await wait_until(lambda: len(hub.downstream_connections) == 1)
+        (connection,) = hub.downstream_connections
+
+        with caplog.at_level(logging.ERROR, logger="software_bus.base_layer"):
+            await hub._relay_to([connection], b"x" * 60)
+            await hub._relay_to([connection], b"y" * 60)  # over the limit: dropped, not raised
+
+        assert hub.downstream_connections == []
+        assert "Connection error callback failed" in caplog.text
+        assert "Receive callback failed" not in caplog.text
+    finally:
+        await hub.close()
+        if peer is not None:
+            await peer.close()
