@@ -23,11 +23,25 @@ import random
 import uuid
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any, Callable, Coroutine, Dict, List, Optional, Set, Tuple, TypeVar, Union
+from collections import deque
+from typing import (
+    Any,
+    Callable,
+    Coroutine,
+    Deque,
+    Dict,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    TypeVar,
+    Union,
+)
 
 from .base_layer import (
     DEFAULT_HOST,
     DEFAULT_PORT,
+    DEFAULT_SEND_QUEUE_LIMIT,
     BaseLayerNode,
     Connection,
     ConnectionErrorCallback,
@@ -123,6 +137,19 @@ class CycleCheckRefused(ConnectionError):
 
 
 _UNDETERMINED = "could not determine whether it would create a cycle"
+
+
+class HeldMessagesOverLimit(ConnectionError):
+    """A pending connection sent more than `PubSubNode.held_messages_limit`
+    during its cycle check; the connection has failed."""
+
+
+def _lost_during_check(
+    error: Optional[BaseException], when: str = "during the cycle check"
+) -> ConnectionError:
+    """The error a cycle check ends with when its connection fails, saying why if known."""
+    reason = f" ({error})" if error is not None else ""
+    return ConnectionError(f"connection closed {when}{reason}")
 
 
 def _check_id(value: bytes, name: str) -> bytes:
@@ -281,12 +308,20 @@ def _matching_connections(
 
 
 @dataclass
+class _HeldMessages:
+    """Subscriptions/publishes kept from a connection until it is accepted, in order."""
+
+    messages: Deque[Tuple[Message, int]] = field(default_factory=deque)  # with their size
+    size: int = 0  # bytes as received, of the messages still kept
+
+
+@dataclass
 class _PendingConnection:
     """An established connection that the cycle check has not accepted yet."""
 
     hello: asyncio.Future  # resolves to the peer's Node ID
-    lost: asyncio.Future  # resolves once the connection fails or is closed
-    held: List[Message] = field(default_factory=list)  # subscriptions/publishes, in order
+    lost: asyncio.Future  # resolves, to the connection's error if any, once it fails or is closed
+    held: _HeldMessages = field(default_factory=_HeldMessages)
 
 
 class _Query:
@@ -324,12 +359,14 @@ class PubSubNode:
     `establish_connection` refuses (raising `CycleCheckRefused`) a connection
     that would close a cycle; see "Cycle Prevention" in
     docs/design/publish-subscribe.md. The class attributes below are that
-    check's timings.
+    check's timings, and how much it keeps of what a connection sends meanwhile.
     """
 
     check_timeout: float = 5.0
     max_check_attempts: int = 5
     check_retry_delay: Tuple[float, float] = (0.2, 2.0)
+    # bytes as received; the same as the base layer's send queue limit
+    held_messages_limit: int = DEFAULT_SEND_QUEUE_LIMIT
 
     def __init__(self) -> None:
         self._base = BaseLayerNode()
@@ -353,7 +390,7 @@ class PubSubNode:
         # keyed by id(connection): Connection is an unhashable dataclass
         self._peer_node_ids: Dict[int, bytes] = {}  # node connections -> their Node ID
         self._pending: Dict[int, _PendingConnection] = {}
-        self._draining: Dict[int, List[Message]] = {}  # accepted, held messages not yet processed
+        self._draining: Dict[int, _HeldMessages] = {}  # accepted, held messages not yet processed
         self._queries: Dict[bytes, _Query] = {}  # query ID -> query being answered
         self._query_tasks: Set[asyncio.Task] = set()
         self._checking = False  # an own reachability query is waiting for replies
@@ -420,27 +457,29 @@ class PubSubNode:
         self, connection: Connection, error: Optional[BaseException]
     ) -> None:
         logger.info("A downstream connection has error: %s (%s)", connection.address, error)
-        self._forget_connection(connection)
+        self._forget_connection(connection, error)
         await self._drop_connection(connection, self._downstream_subscriptions)
 
     async def _on_upstream_connection_error(
         self, connection: Connection, error: Optional[BaseException]
     ) -> None:
         logger.info("An upstream connection has error: %s (%s)", connection.address, error)
-        self._forget_connection(connection)
+        self._forget_connection(connection, error)
         await self._drop_connection(connection, self._upstream_subscriptions)
 
-    def _forget_connection(self, connection: Connection) -> None:
+    def _forget_connection(
+        self, connection: Connection, error: Optional[BaseException] = None
+    ) -> None:
         """Drop the cycle-prevention state held for a failed connection."""
         self._peer_node_ids.pop(id(connection), None)
         self._draining.pop(id(connection), None)
         pending = self._pending.pop(id(connection), None)
         if pending is not None:
             if not pending.lost.done():
-                pending.lost.set_result(None)  # ends its cycle check, whatever step it is at
+                pending.lost.set_result(error)  # ends its cycle check, whatever step it is at
             if not pending.hello.done():
                 pending.hello.set_exception(
-                    ConnectionError("connection closed before the peer identified itself")
+                    _lost_during_check(error, "before the peer identified itself")
                 )
                 pending.hello.exception()  # retrieved: no "never retrieved" log if nobody waits
         for query in list(self._queries.values()):
@@ -516,7 +555,8 @@ class PubSubNode:
                     connection, asyncio.sleep(random.uniform(*self.check_retry_delay))
                 )
             result = await self._unless_lost(connection, self._ask_own_query(peer_id))
-            self._still_pending(connection)  # it may have failed just as the query finished
+            if pending.lost.done():  # it may have failed just as the query finished
+                raise _lost_during_check(pending.lost.result())
             if result == ReachabilityResult.FOUND:
                 return "it would create a cycle"
             if result == ReachabilityResult.NOT_FOUND:
@@ -547,7 +587,7 @@ class PubSubNode:
                 # let it clean up (e.g. its query, `_checking`) before the check goes on
                 await asyncio.wait({task})
         if task.cancelled():
-            self._still_pending(connection)  # raises: the connection was lost
+            raise _lost_during_check(pending.lost.result())
         return task.result()
 
     async def _ask_own_query(self, target_node_id: bytes) -> ReachabilityResult:
@@ -569,8 +609,10 @@ class PubSubNode:
         try:
             await self._send_subscriptions(connection)
             # stop if it fails meanwhile: its messages must not tag a dead connection
-            while held and id(connection) in self._draining:
-                await self._handle_message(connection, held.pop(0), from_upstream=True)
+            while held.messages and id(connection) in self._draining:
+                message, size = held.messages.popleft()
+                held.size -= size
+                await self._handle_message(connection, message, from_upstream=True)
         finally:
             self._draining.pop(id(connection), None)
 
@@ -658,11 +700,18 @@ class PubSubNode:
         if isinstance(message, (SubscriptionMessage, PublishMessage)):
             held = self._held_messages(source)
             if held is not None:
-                held.append(message)
+                if held.size + len(data) > self.held_messages_limit:
+                    error = HeldMessagesOverLimit(
+                        f"it sent over {self.held_messages_limit} bytes during the cycle check"
+                    )
+                    await self._base._handle_connection_error(source, from_upstream, error)
+                    return
+                held.messages.append((message, len(data)))
+                held.size += len(data)
                 return
         await self._handle_message(source, message, from_upstream=from_upstream)
 
-    def _held_messages(self, source: Connection) -> Optional[List[Message]]:
+    def _held_messages(self, source: Connection) -> Optional[_HeldMessages]:
         """Where to keep `source`'s messages until it is accepted, or None if it is."""
         pending = self._pending.get(id(source))
         if pending is not None:

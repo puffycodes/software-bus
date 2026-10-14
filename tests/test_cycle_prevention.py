@@ -342,6 +342,59 @@ async def test_messages_from_a_pending_connection_are_held_until_it_is_accepted(
 
 
 @pytest.mark.asyncio
+async def test_a_pending_connection_that_sends_over_the_held_messages_limit_fails_at_once():
+    server, connected = await accept_one_peer_connection()
+    node = PubSubNode()
+    node.held_messages_limit = 100
+    try:
+        task = asyncio.ensure_future(
+            node.establish_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        )
+        peer = await asyncio.wait_for(connected, timeout=1)
+        await expect_hello(peer)  # never answered, like a Base Layer Node flooding its traffic
+
+        await peer.send(encode_message(SubscriptionMessage("a.b", subscribe=True)))  # 7 bytes
+        await peer.send(encode_message(PublishMessage("a.b", bytes(100))))  # over the limit
+
+        with pytest.raises(ConnectionError, match="over 100 bytes"):
+            await asyncio.wait_for(task, timeout=1)  # well before check_timeout
+        assert node._pending == {} and node.upstream_connections == []
+        assert node._upstream_subscriptions == {}  # what it held was thrown away
+        with pytest.raises((asyncio.IncompleteReadError, ConnectionError)):
+            await asyncio.wait_for(peer.receive(), timeout=1)  # and the connection is closed
+    finally:
+        await node.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_messages_up_to_the_held_messages_limit_are_kept_and_processed_once_accepted():
+    server, connected = await accept_one_peer_connection()
+    node = PubSubNode()
+    first = encode_message(SubscriptionMessage("a.b", subscribe=True))
+    second = encode_message(SubscriptionMessage("c.d", subscribe=True))
+    node.held_messages_limit = len(first) + len(second)  # exactly what it will hold
+    try:
+        task = asyncio.ensure_future(
+            node.establish_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        )
+        peer = await asyncio.wait_for(connected, timeout=1)
+        await expect_hello(peer)
+        await peer.send(first)
+        await peer.send(second)
+        await asyncio.sleep(0.1)
+
+        await peer.send(encode_message(HelloMessage(uuid.uuid4().bytes)))
+        await asyncio.wait_for(task, timeout=5)
+        await wait_until(lambda: list(node._upstream_subscriptions) == ["a.b", "c.d"])
+    finally:
+        await node.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
 async def test_closing_the_node_ends_a_check_still_waiting_for_hello():
     server, connected = await accept_one_peer_connection()
     node = PubSubNode()

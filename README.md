@@ -332,7 +332,11 @@ this check. See "Cycle Prevention" in
 [`docs/design/publish-subscribe.md`](docs/design/publish-subscribe.md) for the
 full rules. Closing a node while `establish_connection` is still checking
 makes it raise straight away, and so does the new connection dropping
-during the check (a `ConnectionError`), at whatever step the check is at. (Base-layer nodes don't check: a tree of `BaseLayerNode`s must
+during the check (a `ConnectionError` saying why), at whatever step the check is at.
+Messages the new connection sends during the check are kept and processed
+once it's accepted; if they come to more than `held_messages_limit` (64 MiB,
+e.g. from a `bl_server` flooding its traffic), the connection is dropped and
+the check ends at once. (Base-layer nodes don't check: a tree of `BaseLayerNode`s must
 still be kept free of cycles by hand — `bus_check`, below, can find them.)
 
 A `PubSubNode` treats a failed connection (peer dropped, or a send/receive

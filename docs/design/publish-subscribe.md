@@ -12,6 +12,7 @@
 - **Pending connection** On a node, a connection that this node established (to an upstream node) and has not yet accepted, because the cycle check for it has not finished. Only the node that establishes a connection sees it as pending; the node that accepts it treats it like any other connection from the start.
 - **Active connection** Any connection that is not pending. Unless stated otherwise, "connection" in the rules of this document means an active connection: pending connections are left out of every set of connections that messages are sent to.
 - **Check timeout** 5 seconds.
+- **Held messages limit** 64 MiB, the same as the send queue limit (see `base-layer.md`). The most a node keeps of the messages received on one pending connection (see Message Processing), counted as the length of each message's payload as received.
 - **Trust** Every node and client on the bus is trusted (see Trust Model in `base-layer.md`). In particular, Cycle Prevention relies on every node sending its own Node ID in Hello and answering Reachability Queries truthfully; it keeps cooperating nodes from forming a cycle by mistake, not a misbehaving node from forming one on purpose.
 
 ## Messages
@@ -45,6 +46,9 @@
     - Upon receiving a Hello, Reachability Query or Reachability Reply message, follow Cycle Prevention.
         - A node sends exactly one Hello message on each connection (see New Connection). If another Hello message arrives on the same connection, the Node ID it carries replaces the one received before, and the connection is a node connection from then on. A cycle check that already used the earlier Node ID is not run again. Since every node is trusted (see Trust), this only happens if a node does not follow this spec.
     - Upon receiving a subscription or publish message on a pending connection, keep it, in the order received, without processing it. Process the kept messages in order if the connection is accepted; discard them if it is refused.
+        - Messages received while the kept ones are being processed after acceptance are kept behind them, so the order is unchanged.
+        - If keeping a message would make the kept messages of that connection more than the held messages limit, the connection has failed (see Exception Handling): the kept messages are discarded, and its cycle check ends straight away.
+            - A node that follows this spec sends little on a connection that is still pending at the other end: its Hello, and a subscription for each subject it knows. It sends no publishes there, since the pending side has not subscribed to anything yet. The limit is reached only by a peer that floods every message, such as a Base Layer Node connected to by mistake, which would otherwise be kept for the whole check.
     - Upon receiving of a subscription message with subscribe content.
         - If the message comes from a downstream connection:
             - Add the connection to the downstream connection list tagged to the subject.
@@ -79,6 +83,8 @@
     - When error occurs on a connection, remove the connection from every subject, applying the unsubscribe rules above for each subject as if the connection had sent an unsubscribe message.
     - A connection dropped by the base layer for being too slow (see Sending Data in `base-layer.md`) is a connection error like any other: it is unsubscribed from every subject, and if it is pending, its cycle check ends.
     - When error occurs on a pending connection, the cycle check for it ends straight away, and Establish Connection reports the error to its caller.
+        - This includes a pending connection that sent more than the held messages limit (see Message Processing).
+        - The error reported says why the connection failed, when that is known (e.g. that it sent more than the limit, or that the peer dropped it).
         - This holds whatever step the check is at: waiting for its turn (see Cycle Prevention), for a Hello message, for the replies to its Reachability Query, or during the random delay between attempts. The check does not wait for that step to finish: a node that is still checking answers other nodes' queries with unknown, and holds up its own other new connections.
 - **Close** Close the Base Layer Node (which stops accepting connections and closes every connection), stop answering any reachability queries still in progress, and forget every subscription.
     - A cycle check still running ends as if its connection had failed, so Establish Connection reports an error to its caller straight away.

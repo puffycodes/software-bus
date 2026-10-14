@@ -1,6 +1,6 @@
 # Test Cases
 
-All 421 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 423 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -159,7 +159,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A client logs and ignores reachability queries and replies (not as malformed), replies nothing, and keeps receiving.
   - A client's connection error callback is called when its node goes away.
 
-## Cycle prevention (`test_cycle_prevention.py`, 53 cases)
+## Cycle prevention (`test_cycle_prevention.py`, 55 cases)
 - **Wire format (15 cases)**
   - Hello, query and reply messages (all three results) survive encoding and decoding unchanged (5 cases).
   - Their byte layout is exactly as specified.
@@ -191,6 +191,8 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - It also ends straight away when the peer drops while the check's query is still waiting for a silent node's reply (the node then stops checking: its query is dropped and the lock is free), during the delay before a retry, or while the check is waiting for an earlier check to finish (which carries on and is accepted) (3 cases).
   - A step of the check started for a connection that is already lost is closed rather than left unawaited, so Python doesn't warn about it.
   - Messages held from a connection that is then refused are thrown away: its subscriptions aren't recorded and its publishes aren't delivered.
+  - A connection that sends more than the held messages limit during its check fails at once: `establish_connection` raises an error saying so, well before the check timeout, nothing it sent is processed, and the connection is closed.
+  - Messages adding up to exactly the held messages limit are kept, and processed once the connection is accepted.
   - If the connection fails while its held messages are being processed, the rest are dropped, so none of them tags a dead connection.
 - **Answering queries**
   - A query for the node itself is answered "found".
