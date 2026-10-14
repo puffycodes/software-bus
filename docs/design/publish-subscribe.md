@@ -71,6 +71,7 @@
         - Leave out the connection the publish message was received from, even if it is subscribed to the subject. Otherwise two neighbouring nodes that both have subscribers would send the same publish back and forth forever. (A client still sees its own publishes; see the client's Publish below.)
         - Send a publish message to each remaining collected connection exactly once, even if it is tagged under more than one matching subject (e.g. a connection subscribed to both "a.b" and "a.*" must still only receive one copy of a publish to "a.b").
     - Upon receiving a malformed message (see `data-format.md`), log it and ignore it. The connection is kept.
+    - Upon receiving a message of an unknown message type (see `data-format.md`), ignore it, logging it only as debugging information. The connection is kept, and the message is not passed on: a node cannot route a message it does not understand.
 - **Exception Handling**
     - When error occurs on a connection, remove the connection from every subject, applying the unsubscribe rules above for each subject as if the connection had sent an unsubscribe message.
     - A connection dropped by the base layer for being too slow (see Sending Data in `base-layer.md`) is a connection error like any other: it is unsubscribed from every subject, and if it is pending, its cycle check ends.
@@ -193,6 +194,7 @@ A node that is checking therefore answers every query it receives with unknown:
     - Upon receiving a subscription message, log the subscription message.
         - Note: The subscription message currently has no use to a Client Node. If some use case arises, the logical move is to provide a callback here. This will not be implemented yet.
     - Upon receiving a malformed message (see `data-format.md`), log it and ignore it. The connection is kept.
+    - Upon receiving a message of an unknown message type (see `data-format.md`), ignore it, logging it only as debugging information. The connection is kept.
     - Upon receiving a Hello message (every node sends one on a new connection), ignore it without logging it as malformed. A client never sends a Hello message.
     - Upon receiving a Reachability Query or Reachability Reply message, log it and ignore it. Nodes do not send these to clients.
     - Upon receiving a publish message:

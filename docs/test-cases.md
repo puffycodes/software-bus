@@ -1,6 +1,6 @@
 # Test Cases
 
-All 405 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 409 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -83,14 +83,14 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A send the node doesn't take within the send timeout fails: it's reported to the connection error callback and raised.
   - A message announcing more than 16 MiB loses the connection, without waiting for the payload.
 
-## Publish/subscribe (`test_pubsub.py`, 67 cases)
+## Publish/subscribe (`test_pubsub.py`, 69 cases)
 - **Wire format (20 cases)**
   - Subscription and publish messages have exactly the byte layout in `data-format.md`, including a subject's length counted in UTF-8 bytes.
   - Bytes after a subscription's subject are ignored.
   - A subscription message survives encoding and decoding unchanged.
   - A publish message with binary content survives encoding and decoding unchanged.
   - Edge cases survive encoding and decoding: an empty subject, a subject with non-ASCII characters, and an empty payload (4 cases).
-  - A message with an unknown type tag is rejected.
+  - A message with an unknown type tag is rejected, as an unknown message type rather than a malformed one.
   - Malformed messages are rejected (7 cases): empty data, a subscription without its subscribe/unsubscribe byte, that byte with an invalid value, a cut-off subject length, a subscription or publish shorter than its stated subject length, and a subject that isn't valid UTF-8.
   - A subject exactly 65535 bytes long is accepted.
   - Subjects over 65535 bytes are rejected (3 cases), including one that's only too long once encoded as UTF-8.
@@ -143,14 +143,17 @@ Some behaviour can't be tested automatically; those tests are described at the e
 - **Robustness**
   - A node logs and ignores a malformed message, and keeps the connection.
   - A client logs and ignores a malformed message, and keeps receiving.
+  - A node ignores a message with an unknown type tag without a warning (logged only at debug level), keeps the connection, and doesn't pass the message on.
+  - A client ignores a message with an unknown type tag without a warning, and keeps receiving.
   - A client logs and ignores reachability queries and replies (not as malformed), replies nothing, and keeps receiving.
   - A client's connection error callback is called when its node goes away.
 
-## Cycle prevention (`test_cycle_prevention.py`, 50 cases)
-- **Wire format (13 cases)**
+## Cycle prevention (`test_cycle_prevention.py`, 52 cases)
+- **Wire format (15 cases)**
   - Hello, query and reply messages (all three results) survive encoding and decoding unchanged (5 cases).
   - Their byte layout is exactly as specified.
-  - Malformed ones are rejected (5 cases): a Hello one byte too short or one byte too long, a query that's too short, a reply with no result byte, and a result value outside 0–2.
+  - Malformed ones are rejected (4 cases): a Hello one byte too short, a query that's too short, a reply with no result byte, and a result value outside 0–2.
+  - Bytes after the known fields of a Hello, query or reply are ignored, for fields a later version may add (3 cases).
   - Node and query IDs of the wrong length can't be encoded.
   - Every node gets its own random 16-byte ID.
 - **Accepting and refusing connections**

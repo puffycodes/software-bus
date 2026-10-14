@@ -194,13 +194,20 @@ def _decode_subject(data: bytes, offset: int) -> Tuple[str, int]:
     return data[subject_start:subject_end].decode("utf-8"), subject_end
 
 
+class UnknownMessageType(ValueError):
+    """A payload's type tag isn't one this version knows: perhaps from a peer
+    using a later version of the wire format, so it is ignored, not malformed."""
+
+
 def _expect_length(data: bytes, length: int, name: str) -> None:
-    if len(data) != length:
-        raise ValueError(f"{name} message must be {length} bytes, not {len(data)}")
+    # at least: later versions may append fields, which this version ignores
+    if len(data) < length:
+        raise ValueError(f"{name} message must be at least {length} bytes, not {len(data)}")
 
 
 def decode_message(data: bytes) -> Message:
-    """Decode a pub/sub payload; raises ValueError if it is malformed."""
+    """Decode a pub/sub payload; raises ValueError if it is malformed, or
+    UnknownMessageType (a ValueError) if its type tag is unknown."""
     if not data:
         raise ValueError("empty pub/sub message")
     msg_type = data[0]
@@ -214,20 +221,21 @@ def decode_message(data: bytes) -> Message:
         return PublishMessage(subject=subject, payload=data[payload_start:])
     if msg_type == _MSG_HELLO:
         _expect_length(data, 1 + _ID_SIZE, "hello")
-        return HelloMessage(node_id=bytes(data[1:]))
+        return HelloMessage(node_id=bytes(data[1 : 1 + _ID_SIZE]))
     if msg_type == _MSG_REACHABILITY_QUERY:
         _expect_length(data, 1 + 2 * _ID_SIZE, "reachability query")
         return ReachabilityQueryMessage(
-            query_id=bytes(data[1 : 1 + _ID_SIZE]), target_node_id=bytes(data[1 + _ID_SIZE :])
+            query_id=bytes(data[1 : 1 + _ID_SIZE]),
+            target_node_id=bytes(data[1 + _ID_SIZE : 1 + 2 * _ID_SIZE]),
         )
     if msg_type == _MSG_REACHABILITY_REPLY:
         _expect_length(data, 1 + _ID_SIZE + 1, "reachability reply")
         try:
-            result = ReachabilityResult(data[-1])
+            result = ReachabilityResult(data[1 + _ID_SIZE])
         except ValueError:
-            raise ValueError(f"invalid reachability result: {data[-1]!r}") from None
+            raise ValueError(f"invalid reachability result: {data[1 + _ID_SIZE]!r}") from None
         return ReachabilityReplyMessage(query_id=bytes(data[1 : 1 + _ID_SIZE]), result=result)
-    raise ValueError(f"unknown pub/sub message type: {msg_type!r}")
+    raise UnknownMessageType(f"unknown pub/sub message type: {msg_type!r}")
 
 
 def _add_subscriber(
@@ -640,6 +648,10 @@ class PubSubNode:
     async def _on_receive(self, source: Connection, data: bytes, *, from_upstream: bool) -> None:
         try:
             message = decode_message(data)
+        except UnknownMessageType as exc:
+            # not passed on either: a node can't route what it doesn't understand
+            logger.debug("Ignoring message from %s: %s", source.address, exc)
+            return
         except ValueError as exc:
             logger.warning("Ignoring malformed message from %s: %s", source.address, exc)
             return
@@ -856,6 +868,9 @@ class PubSubClient:
     async def _on_receive(self, data: bytes) -> None:
         try:
             message = decode_message(data)
+        except UnknownMessageType as exc:
+            logger.debug("Ignoring message: %s", exc)
+            return
         except ValueError as exc:
             logger.warning("Ignoring malformed message: %s", exc)
             return

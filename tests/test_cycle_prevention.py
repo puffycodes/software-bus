@@ -76,7 +76,6 @@ def test_cycle_prevention_messages_wire_layout():
     "data",
     [
         b"\x03" + bytes(15),  # hello too short
-        b"\x03" + bytes(17),  # hello too long
         b"\x04" + bytes(32 - 1),  # query too short
         b"\x05" + bytes(16),  # reply without a result
         b"\x05" + bytes(16) + b"\x03",  # result not 0, 1 or 2
@@ -85,6 +84,23 @@ def test_cycle_prevention_messages_wire_layout():
 def test_decode_malformed_cycle_prevention_message_raises(data):
     with pytest.raises(ValueError):
         decode_message(data)
+
+
+@pytest.mark.parametrize(
+    "data, message",
+    [
+        (b"\x03" + bytes(16) + b"later", HelloMessage(bytes(16))),
+        (b"\x04" + bytes(32) + b"later", ReachabilityQueryMessage(bytes(16), bytes(16))),
+        (
+            b"\x05" + bytes(16) + b"\x01later",
+            ReachabilityReplyMessage(bytes(16), ReachabilityResult.FOUND),
+        ),
+    ],
+    ids=["hello", "query", "reply"],
+)
+def test_decode_ignores_bytes_after_a_cycle_prevention_message(data, message):
+    # later versions of the wire format may append fields
+    assert decode_message(data) == message
 
 
 def test_encode_rejects_ids_of_wrong_length():
@@ -1030,9 +1046,10 @@ async def test_ps_server_with_reconnect_stops_trying_an_upstream_refused_later_a
             await wait_until(lambda: len(hub.downstream_connections) == 1)
             # its first attempt must be over (a refused connect takes ~2 s on Windows)
             await wait_until(lambda: f"connect to 127.0.0.1:{late_port}" in caplog.text, timeout=5)
-            # the late upstream joins the hub first, so linking the server to it closes a cycle
-            await late.accept_connection("127.0.0.1", late_port)
+            # the late upstream joins the hub before it listens, so linking the server to it
+            # closes a cycle (listening first would let the server's retry link to it first)
             await asyncio.wait_for(late.establish_connection("127.0.0.1", hub_port), timeout=2)
+            await late.accept_connection("127.0.0.1", late_port)
             await wait_until(lambda: "Not reconnecting" in caplog.text)
             await asyncio.sleep(0.3)  # several reconnect delays: no further attempt follows
 

@@ -368,6 +368,14 @@ so a publish payload can be at most 16777216 − 3 − the subject's UTF-8
 length; `publish` raises `PayloadTooLong` beyond that. Requests and replies
 are checked the same way before anything is sent.
 
+This is version 1 of the wire format, and it can only be extended in ways
+older peers tolerate (see "Versions and Compatibility" in
+[`docs/design/data-format.md`](docs/design/data-format.md)): a message with
+an unknown type tag is ignored (logged only at debug level, and not passed
+on), and bytes appended after the known fields of a Hello, reachability or
+subscription message are ignored. Publish and request messages can't be
+extended; changing them needs a new message type.
+
 ### `RequestReplyClient` — request/reply
 
 A request/reply client built on top of `PubSubClient`; there's no separate

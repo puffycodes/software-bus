@@ -2,6 +2,17 @@
 
 This document defines all the data format used in this project. The data format should be followed to ensure compatibility between different implementations.
 
+## Versions and Compatibility
+
+The formats in this document are **version 1** of the wire format. No message carries a version number. Instead, the formats can be extended only in the ways below, which a peer that knows only an earlier version handles without failing:
+
+- **A new message type** gets a new type tag. A receiver that does not know the tag ignores the message (see Unknown Message Types), so a newer peer may send it to an older one. A sender cannot tell whether the receiver understood it, so a new message type must only add behaviour: the bus must still work if it is ignored.
+- **A new field** may be appended to the end of a Hello, Reachability Query, Reachability Reply or Subscription Message. Receivers ignore any bytes after the fields they know (see each message), so an older peer reads the message as before.
+    - The meaning of an existing field is never changed, and no field is ever removed.
+- **Publish Messages and Request Messages cannot be extended:** their payload runs to the end of the message, so there is no place to append a field. A change to either needs a new message type.
+- **The base layer framing cannot change.** Every layer depends on it, and it has no type tag.
+- A later version may add a version number, e.g. as a field appended to Hello, once every node in use ignores trailing bytes in Hello. A node from before this rule rejects a Hello longer than 17 bytes as malformed, and its cycle check then refuses the connection.
+
 ## Base Layer Wire Format
 
 Every connection is framed the same way, regardless of what layer is on top of it:
@@ -59,6 +70,7 @@ Tags `0x03`–`0x05` are used only between nodes, for cycle prevention (see `pub
 ```
 
 - `node_id` is the sending node's Node ID: 16 random bytes generated when the node is created (e.g. a random UUID).
+- A decoder ignores any bytes after `node_id` (see Versions and Compatibility).
 
 ### Reachability Query Message
 
@@ -68,6 +80,7 @@ Tags `0x03`–`0x05` are used only between nodes, for cycle prevention (see `pub
 
 - `query_id` is 16 random bytes, new for every query sent by the node that starts the check. Nodes that pass the query on keep the same `query_id`.
 - `target_node_id` is the Node ID being looked for.
+- A decoder ignores any bytes after `target_node_id` (see Versions and Compatibility).
 
 ### Reachability Reply Message
 
@@ -84,14 +97,20 @@ Tags `0x03`–`0x05` are used only between nodes, for cycle prevention (see `pub
 | `0x01` | found     |
 | `0x02` | unknown   |
 
+- A decoder ignores any bytes after `result` (see Versions and Compatibility). A `result` value not in the table is still malformed: a new result would change what an existing field means.
+
+### Unknown Message Types
+
+A pub/sub payload whose type tag is not one listed above is of an unknown message type. It is not malformed: it may come from a peer that uses a later version of this format (see Versions and Compatibility). How a receiver handles it is defined in `publish-subscribe.md`.
+
 ### Malformed Messages
 
 A pub/sub payload is malformed if any of the following hold:
 
-- it is empty, or its type tag is not one listed above;
+- it is empty;
 - a Subscription Message's `state` is missing or is not `0x00` or `0x01`;
 - it is shorter than its `subject_length` says, or the subject is not valid UTF-8;
-- a Hello, Reachability Query or Reachability Reply Message is not exactly 17, 33 or 18 bytes long respectively (including the tag);
+- a Hello, Reachability Query or Reachability Reply Message is shorter than 17, 33 or 18 bytes respectively (including the tag);
 - a Reachability Reply Message's `result` is not `0x00`, `0x01` or `0x02`.
 
 How a receiver handles a malformed message is defined in `publish-subscribe.md`.

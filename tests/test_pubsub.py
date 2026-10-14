@@ -12,6 +12,7 @@ from software_bus.pubsub import (
     ReachabilityReplyMessage,
     ReachabilityResult,
     SubscriptionMessage,
+    UnknownMessageType,
     decode_message,
     encode_message,
 )
@@ -66,7 +67,7 @@ def test_encode_decode_roundtrip_edge_cases(message):
 
 
 def test_decode_unknown_message_type_raises():
-    with pytest.raises(ValueError):
+    with pytest.raises(UnknownMessageType):  # a ValueError, but not "malformed"
         decode_message(b"\xff")
 
 
@@ -960,7 +961,7 @@ async def test_node_ignores_malformed_message_and_keeps_connection(caplog):
         await expect_hello(peer)
 
         with caplog.at_level(logging.WARNING, logger="software_bus.pubsub"):
-            await peer.send(b"\x09garbage")
+            await peer.send(b"\x01\x07")  # a subscription with an invalid state
             await asyncio.sleep(0.1)
         assert len(node.downstream_connections) == 1
         assert any("malformed" in record.getMessage() for record in caplog.records)
@@ -993,11 +994,58 @@ async def test_client_ignores_malformed_message_and_keeps_receiving():
             "a.b", lambda matched, actual, payload: received.append(payload)
         )
 
-        await peer.send(b"\x09garbage")
+        await peer.send(b"\x01\x07")  # a subscription with an invalid state
         await peer.send(encode_message(PublishMessage("a.b", b"after")))
         await asyncio.sleep(0.1)
 
         assert received == [b"after"]
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_node_ignores_an_unknown_message_type_quietly_and_does_not_pass_it_on(caplog):
+    node, port = await _start_node()
+    sender = other = None
+    try:
+        sender = await open_peer_connection("127.0.0.1", port)
+        other = await open_peer_connection("127.0.0.1", port)
+        await expect_hello(sender)
+        await expect_hello(other)
+
+        with caplog.at_level(logging.DEBUG, logger="software_bus.pubsub"):
+            await sender.send(b"\x09from a later version")
+            with pytest.raises(asyncio.TimeoutError):  # not passed on
+                await asyncio.wait_for(other.receive(), timeout=0.1)
+        assert len(node.downstream_connections) == 2
+        assert not any(r.levelno >= logging.WARNING for r in caplog.records)
+        assert any("unknown pub/sub message type" in r.getMessage() for r in caplog.records)
+    finally:
+        await node.close()
+        for peer in (sender, other):
+            if peer is not None:
+                await peer.close()
+
+
+@pytest.mark.asyncio
+async def test_client_ignores_an_unknown_message_type_quietly_and_keeps_receiving(caplog):
+    server, connected = await accept_one_peer_connection()
+    client = PubSubClient()
+    received = []
+    try:
+        await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+        peer = await asyncio.wait_for(connected, timeout=1)
+        await client.subscribe("a.b", lambda matched, actual, payload: received.append(payload))
+
+        with caplog.at_level(logging.DEBUG, logger="software_bus.pubsub"):
+            await peer.send(b"\x09from a later version")
+            await peer.send(encode_message(PublishMessage("a.b", b"after")))
+            await asyncio.sleep(0.1)
+
+        assert received == [b"after"]
+        assert not any(r.levelno >= logging.WARNING for r in caplog.records)
     finally:
         await client.close()
         server.close()
