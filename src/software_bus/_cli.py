@@ -3,11 +3,20 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import random
 import sys
 from datetime import datetime
 from typing import Any, Awaitable, Callable, Coroutine, List, Optional, Tuple
 
 from .base_layer import DEFAULT_HOST, DEFAULT_PORT
+from .pubsub import CycleCheckRefused
+
+logger = logging.getLogger(__name__)
+
+# Reconnect delay (base-layer.md): doubles after each failed attempt, up to the
+# maximum, times a random 0.5-1 so servers that lost the same upstream spread out.
+FIRST_RECONNECT_DELAY = 1.0
+MAX_RECONNECT_DELAY = 60.0
 
 
 def configure_logging(debug: bool) -> None:
@@ -115,32 +124,96 @@ def build_server_arg_parser(description: str, server_name: str) -> argparse.Argu
         default=[],
         help="accept downstream connections on ip:port; may be given multiple times",
     )
+    parser.add_argument(
+        "--reconnect",
+        type=parse_bool,
+        default=False,
+        metavar="true|false",
+        help="keep trying an upstream that can't be reached or is lost (default: false)",
+    )
     add_debug_argument(parser)
     return parser
 
 
 async def run_server(
-    node: Any, upstreams: List[Tuple[str, int]], listens: List[Tuple[str, int]]
+    node: Any,
+    upstreams: List[Tuple[str, int]],
+    listens: List[Tuple[str, int]],
+    reconnect: bool = False,
 ) -> None:
     """Connect `node` upstream, start listening, and run until cancelled.
 
-    Raises ConnectFailed / ListenFailed if an address can't be used.
+    Raises ListenFailed if a listen address can't be used. Without `reconnect`,
+    raises ConnectFailed if an upstream can't be connected to, and never
+    connects to a lost upstream again. With it, see `_keep_connected`.
     """
+    upstream_tasks: List["asyncio.Future[None]"] = []
     try:
-        for host, port in upstreams:
-            try:
-                await node.establish_connection(host, port)
-            except OSError as exc:
-                raise ConnectFailed(host, port, exc) from exc
-        for host, port in listens:
-            try:
-                await node.accept_connection(host, port)
-            except OSError as exc:
-                raise ListenFailed(host, port, exc) from exc
-
+        if not reconnect:
+            for host, port in upstreams:
+                try:
+                    await node.establish_connection(host, port)
+                except OSError as exc:
+                    raise ConnectFailed(host, port, exc) from exc
+        await _listen(node, listens)  # with reconnect, without waiting for upstreams
+        if reconnect:
+            upstream_tasks = [
+                asyncio.ensure_future(_keep_connected(node, host, port))
+                for host, port in upstreams
+            ]
+            await asyncio.gather(*upstream_tasks)  # raises if one fails at start-up
         await asyncio.Event().wait()
     finally:
+        for task in upstream_tasks:
+            task.cancel()
+        await asyncio.gather(*upstream_tasks, return_exceptions=True)
         await node.close()
+
+
+async def _listen(node: Any, listens: List[Tuple[str, int]]) -> None:
+    for host, port in listens:
+        try:
+            await node.accept_connection(host, port)
+        except OSError as exc:
+            raise ListenFailed(host, port, exc) from exc
+
+
+async def _keep_connected(
+    node: Any,
+    host: str,
+    port: int,
+    sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
+) -> None:
+    """Connect `node` to one upstream, and again whenever that fails or is lost.
+
+    Waits the reconnect delay between attempts. A cycle check refusal that
+    can't go away (anything but "could not determine") ends the attempts:
+    on the first attempt by raising ConnectFailed, so the server exits as it
+    would without --reconnect; later by logging it and returning, so the
+    server keeps serving its other connections. `sleep` is replaceable for tests.
+    """
+    delay = FIRST_RECONNECT_DELAY
+    first_attempt = True
+    while True:
+        try:
+            connection = await node.establish_connection(host, port)
+        except CycleCheckRefused as exc:
+            if not exc.retryable:
+                if first_attempt:
+                    raise ConnectFailed(host, port, exc) from exc
+                logger.error("Not reconnecting to %s:%s: %s", host, port, exc)
+                return
+            logger.warning("Cannot connect to %s:%s (%s); trying again", host, port, exc)
+        except OSError as exc:
+            logger.warning("Cannot connect to %s:%s (%s); trying again", host, port, exc)
+        else:
+            logger.info("Connected to upstream %s:%s", host, port)
+            delay = FIRST_RECONNECT_DELAY
+            await connection.wait_ended()
+            logger.warning("Lost the connection to upstream %s:%s; reconnecting", host, port)
+        first_attempt = False
+        await sleep(delay * random.uniform(0.5, 1))
+        delay = min(delay * 2, MAX_RECONNECT_DELAY)
 
 
 async def repeat(

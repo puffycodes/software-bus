@@ -35,6 +35,7 @@
 - **Establish Connection** Connect to an upstream node, as a Base Layer Node does, then run the cycle check for the new connection (see Cycle Prevention).
     - Only return once the check has finished and the connection is accepted.
     - If the connection is refused, close it and report an error to the caller that says why.
+        - The error also says whether trying again later could succeed. This is only so when the check gave up after its attempts all ended unknown or timed out (step 5 of Checking a new connection): that comes from other links being added at the same time, which will finish. The other refusals (a cycle was found, a connection to itself, already connected to that node, no Hello message) stay true until the tree itself changes.
 - **New Connection**
     - When a new upstream or downstream connection is made, first send it a Hello message with this node's Node ID.
     - For an accepted (downstream) connection: then straight away send it a subscription message with subscribe content for every subject that currently has subscribers, so that a node joining the tree late learns about existing subscriptions.
@@ -205,9 +206,15 @@ A node that is checking therefore answers every query it receives with unknown:
     - parameter --upstream ip:port (default: None)
 - Accepting connection from zero or more downstream client.
     - parameter --listen ip:port (default: None)
-- Exit with an error message and exit status 1 if it cannot connect to an upstream server or cannot listen on an address (e.g. the address is already in use).
-    - This includes an upstream connection refused by the cycle check (see Cycle Prevention), with the reason, e.g. that it would create a cycle.
-    - Losing an upstream connection later is not a reason to exit; the server keeps serving its other connections.
+- Reconnect to upstream servers.
+    - parameter --reconnect true|false (default: false)
+    - It follows the same rules as bl_server (see `base-layer.md`), with these additions for the cycle check (see Cycle Prevention):
+        - With --reconnect false, exit with an error message and exit status 1 if an upstream connection is refused by the cycle check, with the reason, e.g. that it would create a cycle.
+        - With --reconnect true:
+            - A refusal that trying again later could succeed (see Establish Connection) is treated like failing to connect: log a warning, wait the reconnect delay, and try again.
+            - Any other refusal ends the attempts for that upstream server. If it happens on the first attempt to connect to it, exit with an error message and exit status 1, with the reason, as with --reconnect false. On a later attempt, log the reason as an error, stop trying that upstream server, and keep serving the other connections: by then the server may be serving clients and nodes, and exiting would cut them all off.
+    - After reconnecting, nothing more needs to be done for subscriptions: both ends send their subscriptions on the new connection once it is accepted (see New Connection), as for any new connection.
+- Exit with an error message and exit status 1 if it cannot listen on an address (e.g. the address is already in use), whatever --reconnect is.
 - Print logging information
     - parameter --debug true|false (default: false)
 

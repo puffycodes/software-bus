@@ -3,11 +3,11 @@ import asyncio
 
 import pytest
 
-from software_bus import bl_client, bl_server
+from software_bus import _cli, bl_client, bl_server
 from software_bus._cli import parse_address, ConnectFailed, ConnectionLost, ListenFailed
 from software_bus.base_layer import DEFAULT_HOST, DEFAULT_PORT, BaseLayerNode
 
-from helpers import accept_one_peer_connection, free_port, open_peer_connection
+from helpers import accept_one_peer_connection, free_port, open_peer_connection, wait_until
 
 
 def test_parse_address_valid():
@@ -285,3 +285,80 @@ async def test_bl_server_run_keeps_serving_after_losing_its_upstream():
                 await peer.close()
         upstream_server.close()
         await upstream_server.wait_closed()
+
+
+# --- --reconnect -----------------------------------------------------------------------
+
+
+@pytest.fixture
+def short_reconnect_delays(monkeypatch):
+    monkeypatch.setattr(_cli, "FIRST_RECONNECT_DELAY", 0.05)
+    monkeypatch.setattr(_cli, "MAX_RECONNECT_DELAY", 0.1)
+
+
+@pytest.mark.asyncio
+async def test_bl_server_with_reconnect_waits_for_its_upstream_and_reconnects_after_losing_it(
+    short_reconnect_delays,
+):
+    upstream_port, listen_port = free_port(), free_port()
+    task = asyncio.ensure_future(
+        bl_server.run([("127.0.0.1", upstream_port)], [("127.0.0.1", listen_port)], reconnect=True)
+    )
+    upstream = BaseLayerNode()
+    peer = None
+    try:
+        # not there yet: the server keeps trying, and listens meanwhile
+        await asyncio.sleep(0.2)
+        assert not task.done()
+        peer = await asyncio.wait_for(open_peer_connection("127.0.0.1", listen_port), timeout=1)
+
+        await upstream.accept_connection("127.0.0.1", upstream_port)
+        await wait_until(lambda: len(upstream.downstream_connections) == 1)
+
+        await upstream.close()  # lost: the server connects to its replacement
+        upstream = BaseLayerNode()
+        received = []
+        upstream.register_downstream_receive_callback(lambda source, data: received.append(data))
+        await upstream.accept_connection("127.0.0.1", upstream_port)
+        await wait_until(lambda: len(upstream.downstream_connections) == 1)
+
+        await peer.send(b"relayed upstream")
+        await wait_until(lambda: received == [b"relayed upstream"])
+        assert not task.done()
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await upstream.close()
+        if peer is not None:
+            await peer.close()
+
+
+@pytest.mark.asyncio
+async def test_bl_server_with_reconnect_still_exits_when_it_cannot_listen(short_reconnect_delays):
+    occupier = await asyncio.start_server(lambda reader, writer: None, "127.0.0.1", 0)
+    busy_port = occupier.sockets[0].getsockname()[1]
+    try:
+        with pytest.raises(ListenFailed):
+            await asyncio.wait_for(
+                bl_server.run([("127.0.0.1", free_port())], [("127.0.0.1", busy_port)], reconnect=True),
+                timeout=5,
+            )
+    finally:
+        occupier.close()
+        await occupier.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_stopping_a_server_stops_its_reconnect_attempts(monkeypatch):
+    monkeypatch.setattr(_cli, "FIRST_RECONNECT_DELAY", 60)  # stopped while waiting to retry
+    listen_port = free_port()
+    task = asyncio.ensure_future(
+        bl_server.run([("127.0.0.1", free_port())], [("127.0.0.1", listen_port)], reconnect=True)
+    )
+    await asyncio.sleep(0.2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=1)
+    with pytest.raises(OSError):  # and the node is closed: nothing listens any more
+        await open_peer_connection("127.0.0.1", listen_port)

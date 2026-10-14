@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import logging
 import re
 
 import pytest
@@ -17,6 +18,7 @@ from software_bus import (
 from software_bus._cli import (
     ConnectFailed,
     ConnectionLost,
+    _keep_connected,
     build_server_arg_parser,
     connect,
     parse_bool,
@@ -28,6 +30,7 @@ from software_bus._cli import (
 )
 from software_bus.base_layer import DEFAULT_HOST, DEFAULT_PORT
 from software_bus.client import BaseLayerClient
+from software_bus.pubsub import CycleCheckRefused
 
 from helpers import free_port
 
@@ -76,6 +79,12 @@ def test_every_script_accepts_debug_flag_defaulting_to_false(script, argv):
 def test_every_client_script_upstream_defaults_to_base_layer_default(script, argv):
     args = script.build_arg_parser().parse_args(argv)
     assert args.upstream == (DEFAULT_HOST, DEFAULT_PORT)
+
+
+@pytest.mark.parametrize("server", [bl_server, ps_server])
+def test_server_reconnect_option_defaults_to_false(server):
+    assert server.build_arg_parser().parse_args([]).reconnect is False
+    assert server.build_arg_parser().parse_args(["--reconnect", "true"]).reconnect is True
 
 
 def test_build_server_arg_parser_names_the_server_in_help():
@@ -225,3 +234,82 @@ def test_run_until_interrupted_exits_with_status_1_on_connect_failure():
         run_until_interrupted(main())
 
     assert "cannot connect to 127.0.0.1:1" in str(exc_info.value.code)
+
+
+# --- reconnecting servers -------------------------------------------------------------
+
+
+class _FakeConnection:
+    def __init__(self, lost: bool) -> None:
+        self.lost = lost
+
+    async def wait_ended(self) -> None:
+        if not self.lost:
+            await asyncio.Event().wait()  # stays connected
+
+
+class _FakeNode:
+    """establish_connection plays `outcomes` in turn: an exception to raise, or a
+    _FakeConnection to return."""
+
+    def __init__(self, outcomes) -> None:
+        self.outcomes = list(outcomes)
+        self.attempts = 0
+
+    async def establish_connection(self, host, port):
+        self.attempts += 1
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+
+@pytest.mark.asyncio
+async def test_reconnect_delay_doubles_up_to_the_maximum_and_restarts_after_a_connection():
+    unreachable = ConnectionRefusedError("refused")
+    node = _FakeNode(
+        [unreachable] * 8
+        + [_FakeConnection(lost=True)]
+        + [unreachable, CycleCheckRefused("could not tell", retryable=True)]
+        + [_FakeConnection(lost=False)]
+    )
+    delays = []
+
+    async def sleep(delay):
+        delays.append(delay)
+
+    task = asyncio.ensure_future(_keep_connected(node, "127.0.0.1", 1, sleep))
+    try:
+        await asyncio.sleep(0.05)
+        assert node.attempts == 12 and not task.done()  # the last connection is kept
+    finally:
+        task.cancel()
+    expected = [1, 2, 4, 8, 16, 32, 60, 60] + [1, 2, 4]  # back to 1 s once connected
+    assert len(delays) == len(expected)
+    for delay, longest in zip(delays, expected):
+        assert longest * 0.5 <= delay <= longest  # random factor between 0.5 and 1
+
+
+@pytest.mark.asyncio
+async def test_reconnect_ends_with_connect_failed_on_a_lasting_refusal_at_the_first_attempt():
+    node = _FakeNode([CycleCheckRefused("it would create a cycle")])
+
+    async def sleep(delay):
+        pytest.fail("must not try again")
+
+    with pytest.raises(ConnectFailed, match="create a cycle"):
+        await _keep_connected(node, "127.0.0.1", 1, sleep)
+
+
+@pytest.mark.asyncio
+async def test_reconnect_stops_and_logs_on_a_lasting_refusal_after_the_first_attempt(caplog):
+    node = _FakeNode([ConnectionRefusedError("refused"), CycleCheckRefused("it would create a cycle")])
+
+    async def sleep(delay):
+        pass
+
+    with caplog.at_level(logging.WARNING, logger="software_bus._cli"):
+        await asyncio.wait_for(_keep_connected(node, "127.0.0.1", 1, sleep), timeout=1)
+    assert node.attempts == 2
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1 and "create a cycle" in errors[0].getMessage()

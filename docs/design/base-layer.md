@@ -5,6 +5,7 @@
 - **Maximum payload length** The largest payload a single message can carry, 16 MiB (16777216 bytes). See "Base Layer Wire Format" in `data-format.md`.
 - **Send timeout** 30 seconds. The longest time data may wait to be handed to the operating system for one connection.
 - **Send queue limit** 64 MiB (four times the maximum payload length). The most data a node keeps waiting to be sent on one connection.
+- **Reconnect delay** How long a server waits before trying an upstream connection again. The first delay is 1 second, and each failed attempt in a row doubles it, up to 60 seconds. Each delay is multiplied by a random factor between 0.5 and 1, so that servers that lost the same upstream node do not all try again at the same moment. The delay goes back to 1 second once a connection succeeds.
 
 ## Base Layer Node Class
 
@@ -121,8 +122,19 @@ Functionalities
     - parameter --upstream ip:port (default: None)
 - Accepting connection from zero or more downstream client.
     - parameter --listen ip:port (default: None)
-- Exit with an error message and exit status 1 if it cannot connect to an upstream server or cannot listen on an address (e.g. the address is already in use).
-    - Losing an upstream connection later is not a reason to exit; the server keeps serving its other connections.
+- Reconnect to upstream servers.
+    - parameter --reconnect true|false (default: false)
+    - With --reconnect false:
+        - Exit with an error message and exit status 1 if it cannot connect to an upstream server.
+        - Losing an upstream connection later is not a reason to exit; the server keeps serving its other connections, but does not connect to that upstream server again.
+    - With --reconnect true, each upstream server given with --upstream is handled on its own:
+        - If it cannot be connected to, at start-up or later, log a warning, wait the reconnect delay, and try again. Keep trying until it succeeds or the server is stopped.
+        - If its connection is lost, log a warning, wait the reconnect delay (the shortest one, since the last attempt succeeded), and try to connect again as above.
+        - The server keeps serving its other connections throughout. It starts listening (--listen) straight away, without waiting for its upstream servers.
+        - Messages that would have gone over a lost connection while it was down are not kept or resent: they are lost, as on any lost connection.
+        - Reconnecting re-creates the same link to the same address. The Base Layer has no cycle prevention, so if the servers were linked differently while it was down, reconnecting can close a cycle; `bus_check` (`bus-check.md`) can find it.
+    - Stopping the server (e.g. Ctrl-C) stops any attempt in progress and any waiting before the next one.
+- Exit with an error message and exit status 1 if it cannot listen on an address (e.g. the address is already in use), whatever --reconnect is.
 - Print logging information
     - parameter --debug true|false (default: false)
 

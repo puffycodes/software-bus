@@ -66,6 +66,11 @@ class Connection:
         self.writer.write(len(data).to_bytes(_LENGTH_PREFIX_SIZE, "big") + data)
         await self.writer.drain()
 
+    async def wait_ended(self) -> None:
+        """Wait until the connection has failed or been closed (its relay or receive loop has ended)."""
+        if self.background_task is not None:
+            await asyncio.wait({self.background_task})
+
     async def receive(self) -> bytes:
         header = await self.reader.readexactly(_LENGTH_PREFIX_SIZE)
         length = int.from_bytes(header, "big")

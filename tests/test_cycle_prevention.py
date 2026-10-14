@@ -21,15 +21,17 @@ from software_bus.pubsub import (
     decode_message,
     encode_message,
 )
-from software_bus import ps_server
+from software_bus import _cli, ps_server
 
 from helpers import (
     accept_one_peer_connection,
     answer_query,
     establish_to_raw_peer,
     expect_hello,
+    free_port,
     greet_as_node,
     open_peer_connection,
+    wait_until,
 )
 
 
@@ -945,6 +947,108 @@ async def test_client_ignores_hello_quietly(caplog):
     finally:
         await client.close()
         await node.close()
+
+
+@pytest.fixture
+def short_reconnect_delays(monkeypatch):
+    monkeypatch.setattr(_cli, "FIRST_RECONNECT_DELAY", 0.05)
+    monkeypatch.setattr(_cli, "MAX_RECONNECT_DELAY", 0.1)
+
+
+@pytest.mark.asyncio
+async def test_ps_server_with_reconnect_still_exits_when_refused_at_start_up(short_reconnect_delays):
+    parent, parent_port = await _start_node()
+    try:
+        with pytest.raises(ConnectFailed, match="already connected"):
+            await asyncio.wait_for(
+                ps_server.run(
+                    [("127.0.0.1", parent_port), ("127.0.0.1", parent_port)],
+                    [("127.0.0.1", 0)],
+                    reconnect=True,
+                ),
+                timeout=10,
+            )
+    finally:
+        await parent.close()
+
+
+@pytest.mark.asyncio
+async def test_ps_server_with_reconnect_retries_a_check_that_could_not_tell(
+    short_reconnect_delays, monkeypatch
+):
+    monkeypatch.setattr(PubSubNode, "check_timeout", 0.2)
+    monkeypatch.setattr(PubSubNode, "max_check_attempts", 1)
+    silent_server, silent_connected = await accept_one_peer_connection()
+    other_port = free_port()
+    task = asyncio.ensure_future(
+        ps_server.run(
+            [("127.0.0.1", silent_server.sockets[0].getsockname()[1]), ("127.0.0.1", other_port)],
+            [("127.0.0.1", 0)],
+            reconnect=True,
+        )
+    )
+    other = PubSubNode()
+    try:
+        silent = await asyncio.wait_for(silent_connected, timeout=1)
+        await greet_as_node(silent)  # accepted: the server has no other nodes to ask yet
+        await asyncio.sleep(0.1)
+
+        await other.accept_connection("127.0.0.1", other_port)
+        query = decode_message(await asyncio.wait_for(silent.receive(), timeout=2))
+        assert isinstance(query, ReachabilityQueryMessage)  # left unanswered: "unknown"
+        await answer_query(silent)  # the retry's query gets "not found"
+
+        await wait_until(lambda: len(other.downstream_connections) == 1)
+        assert not task.done()
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await other.close()
+        silent_server.close()
+        await silent_server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_ps_server_with_reconnect_stops_trying_an_upstream_refused_later_and_keeps_serving(
+    short_reconnect_delays, caplog
+):
+    hub, hub_port = await _start_node()
+    late_port = free_port()
+    listen_port = free_port()
+    task = asyncio.ensure_future(
+        ps_server.run(
+            [("127.0.0.1", late_port), ("127.0.0.1", hub_port)],
+            [("127.0.0.1", listen_port)],
+            reconnect=True,
+        )
+    )
+    late = PubSubNode()
+    client = PubSubClient()
+    try:
+        with caplog.at_level(logging.WARNING, logger="software_bus._cli"):
+            await wait_until(lambda: len(hub.downstream_connections) == 1)
+            # its first attempt must be over (a refused connect takes ~2 s on Windows)
+            await wait_until(lambda: f"connect to 127.0.0.1:{late_port}" in caplog.text, timeout=5)
+            # the late upstream joins the hub first, so linking the server to it closes a cycle
+            await late.accept_connection("127.0.0.1", late_port)
+            await asyncio.wait_for(late.establish_connection("127.0.0.1", hub_port), timeout=2)
+            await wait_until(lambda: "Not reconnecting" in caplog.text)
+            await asyncio.sleep(0.3)  # several reconnect delays: no further attempt follows
+
+        refusals = [r for r in caplog.records if "Not reconnecting" in r.getMessage()]
+        assert len(refusals) == 1 and "would create a cycle" in refusals[0].getMessage()
+        attempts_after = caplog.records[caplog.records.index(refusals[0]) + 1 :]
+        assert attempts_after == []
+        assert not task.done()
+        await client.connect("127.0.0.1", listen_port)  # still serving
+    finally:
+        await client.close()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await late.close()
+        await hub.close()
 
 
 @pytest.mark.asyncio

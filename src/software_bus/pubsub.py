@@ -110,7 +110,19 @@ PublishCallback = Callable[[str, str, bytes], Any]
 
 class CycleCheckRefused(ConnectionError):
     """Raised by `PubSubNode.establish_connection` when the cycle check refuses
-    the new connection; the message says why (e.g. it would create a cycle)."""
+    the new connection; the message says why (e.g. it would create a cycle).
+
+    `retryable` is true only when the check couldn't tell (every attempt ended
+    unknown): links added at the same time cause that, and they finish, so
+    trying again later can succeed. Every other refusal lasts until the tree changes.
+    """
+
+    def __init__(self, message: str, retryable: bool = False) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+
+
+_UNDETERMINED = "could not determine whether it would create a cycle"
 
 
 def _check_id(value: bytes, name: str) -> bytes:
@@ -472,7 +484,9 @@ class PubSubNode:
             raise
         # info, not error: the caller gets the reason in the exception (ps_server prints it)
         logger.info("Refused upstream connection to %s: %s", connection.address, reason)
-        error = CycleCheckRefused(f"refused by the cycle check: {reason}")
+        error = CycleCheckRefused(
+            f"refused by the cycle check: {reason}", retryable=reason == _UNDETERMINED
+        )
         await self._base._handle_connection_error(connection, True, error)
         raise error
 
@@ -499,7 +513,7 @@ class PubSubNode:
                 return "it would create a cycle"
             if result == ReachabilityResult.NOT_FOUND:
                 return None
-        return "could not determine whether it would create a cycle"
+        return _UNDETERMINED
 
     def _still_pending(self, connection: Connection) -> _PendingConnection:
         pending = self._pending.get(id(connection))

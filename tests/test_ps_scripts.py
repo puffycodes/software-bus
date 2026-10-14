@@ -3,7 +3,7 @@ import asyncio
 
 import pytest
 
-from software_bus import ps_publish, ps_server, ps_subscribe
+from software_bus import _cli, ps_publish, ps_server, ps_subscribe
 from software_bus._cli import (
     parse_subject_list,
     ConnectFailed,
@@ -14,7 +14,7 @@ from software_bus._cli import (
 from software_bus.base_layer import DEFAULT_HOST, DEFAULT_PORT
 from software_bus.pubsub import PubSubClient, PubSubNode, SubscriptionMessage, decode_message, encode_message
 
-from helpers import accept_one_peer_connection, free_port, greet_as_node, open_peer_connection
+from helpers import accept_one_peer_connection, free_port, greet_as_node, open_peer_connection, wait_until
 
 
 def test_parse_subject_list_splits_and_strips():
@@ -345,3 +345,39 @@ async def test_ps_server_run_keeps_serving_after_losing_its_upstream():
             await task
         upstream_server.close()
         await upstream_server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_ps_server_with_reconnect_resumes_subscriptions_after_its_upstream_restarts(monkeypatch):
+    monkeypatch.setattr(_cli, "FIRST_RECONNECT_DELAY", 0.05)
+    monkeypatch.setattr(_cli, "MAX_RECONNECT_DELAY", 0.1)
+    upstream_port, listen_port = free_port(), free_port()
+    upstream = PubSubNode()
+    await upstream.accept_connection("127.0.0.1", upstream_port)
+    task = asyncio.ensure_future(
+        ps_server.run([("127.0.0.1", upstream_port)], [("127.0.0.1", listen_port)], reconnect=True)
+    )
+    subscriber = PubSubClient()
+    publisher = PubSubClient()
+    received = []
+    try:
+        await wait_until(lambda: len(upstream.downstream_connections) == 1)
+        await subscriber.connect("127.0.0.1", listen_port)
+        await subscriber.subscribe("a.b", lambda m, a, payload: received.append(payload))
+
+        await upstream.close()  # restarted: the server reconnects, and both sides resend subscriptions
+        upstream = PubSubNode()
+        await upstream.accept_connection("127.0.0.1", upstream_port)
+        await wait_until(lambda: "a.b" in upstream._downstream_subscriptions)
+
+        await publisher.connect("127.0.0.1", upstream_port)
+        await publisher.publish("a.b", b"after the restart")
+        await wait_until(lambda: received == [b"after the restart"])
+        assert not task.done()
+    finally:
+        await subscriber.close()
+        await publisher.close()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await upstream.close()

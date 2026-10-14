@@ -1,6 +1,6 @@
 # Test Cases
 
-All 385 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 397 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -146,7 +146,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A client logs and ignores reachability queries and replies (not as malformed), replies nothing, and keeps receiving.
   - A client's connection error callback is called when its node goes away.
 
-## Cycle prevention (`test_cycle_prevention.py`, 47 cases)
+## Cycle prevention (`test_cycle_prevention.py`, 50 cases)
 - **Wire format (13 cases)**
   - Hello, query and reply messages (all three results) survive encoding and decoding unchanged (5 cases).
   - Their byte layout is exactly as specified.
@@ -165,6 +165,9 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A "found" reply refuses the connection at once, without waiting for the other nodes to reply.
   - A node that fails before replying counts as "not found", so the check doesn't wait for it.
   - `ps_server` exits with an error if an upstream connection is refused.
+  - With `--reconnect true` it still exits if an upstream connection is refused on the first attempt.
+  - With `--reconnect true`, a connection refused because the check couldn't tell (a node never answered) is tried again, and accepted once the check gets an answer.
+  - With `--reconnect true`, a cycle refusal on a later attempt is logged as an error and ends the attempts for that upstream, and the server keeps serving.
 - **The pending period**
   - Messages received on a connection still being checked are held until it's accepted.
   - Nothing is sent on a connection still being checked until it's accepted.
@@ -225,7 +228,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Accepting with the same subject and callback twice still calls it once per request. A failing request callback is logged and doesn't stop another acceptor on the same client. Stopping one callback leaves the others accepting, stopping it again does nothing, and stopping the last one removes the subscription.
   - An acceptor logs and ignores bad requests (3 cases): a malformed Request Message, one whose reply subject isn't a reply subject, and one whose reply subject belongs to a different request subject.
 
-## Shared script helpers (`test_cli.py`, 39 cases)
+## Shared script helpers (`test_cli.py`, 44 cases)
 - **Options and parsing**
   - `true`/`false` options accept any capitalisation (3 cases).
   - Other values like `yes`, `1` or an empty string are rejected (3 cases).
@@ -233,6 +236,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A negative timeout, a non-number, an empty value and `nan` are rejected (4 cases).
   - Every script accepts `--debug`, and it defaults to false (8 scripts).
   - Every client script's `--upstream` defaults to 127.0.0.1:8787 (5 scripts).
+  - Both servers' `--reconnect` defaults to false and accepts true (2 scripts).
   - The server help text names the right server.
 - **Runtime helpers**
   - Connecting to an unreachable server raises a clear "cannot connect" error.
@@ -243,13 +247,17 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - "Run until connection lost" returns normally when the script's work finishes.
   - It stops the work and raises "connection lost" when the connection drops.
   - It passes on the work's own error when the connection wasn't lost.
+- **Reconnecting servers**
+  - The reconnect delay doubles from 1 s after each failed attempt up to 60 s, each shortened by a random factor between 0.5 and 1, and starts again at 1 s after a connection. A refusal that could go away counts as a failed attempt.
+  - A lasting cycle check refusal on the first attempt raises "cannot connect", without trying again.
+  - A lasting refusal on a later attempt is logged as an error and ends the attempts for that upstream.
 - **Exiting**
   - A script's coroutine is run to completion.
   - Ctrl-C exits quietly.
   - A connection failure exits with status 1.
   - A lost connection exits with status 1.
 
-## Base layer scripts (`test_scripts.py`, 21 cases)
+## Base layer scripts (`test_scripts.py`, 24 cases)
 - **Address parsing**
   - An `ip:port` address is parsed correctly.
   - Malformed addresses are rejected (4 cases): no port, no host, an empty port, and a non-numeric port.
@@ -261,6 +269,9 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - An unreachable upstream raises a clear "cannot connect" error.
   - An address already in use raises a clear "cannot listen" error.
   - Losing its upstream connection later doesn't stop it: it keeps relaying between its other connections.
+  - With `--reconnect true` it listens straight away while its upstream isn't there yet, connects once it is, and after losing it connects to its replacement and relays through the new connection.
+  - With `--reconnect true`, an address already in use still raises "cannot listen".
+  - Stopping a server while it waits to retry an upstream ends it straight away, and closes its node.
 - **`bl_client`**
   - Its default address matches the base layer default, and `--time-stamp` defaults to true.
   - `--message` defaults to none.
@@ -272,7 +283,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - The server going away raises "connection lost".
   - It stops repeating when the server goes away.
 
-## Pub/sub scripts (`test_ps_scripts.py`, 24 cases)
+## Pub/sub scripts (`test_ps_scripts.py`, 25 cases)
 - **Subject list parsing**
   - A comma-separated list is split and its whitespace trimmed.
   - An empty list is rejected.
@@ -283,6 +294,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - An unreachable upstream raises "cannot connect".
   - An address already in use raises "cannot listen".
   - Losing its upstream connection later doesn't stop it: its clients can still publish and subscribe.
+  - With `--reconnect true`, subscriptions resume after its upstream restarts: a publish to the new upstream reaches the server's subscriber.
 - **`ps_subscribe`**
   - `--subject` is required.
   - Comma-separated subjects are parsed.

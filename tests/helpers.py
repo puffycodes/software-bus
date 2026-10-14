@@ -44,6 +44,15 @@ async def accept_one_peer_connection():
     return server, connected
 
 
+async def wait_until(condition, timeout: float = 2) -> None:
+    """Poll `condition()` until it is true; fail if it isn't within `timeout` seconds."""
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + timeout
+    while not condition():
+        assert loop.time() < deadline, "condition not met in time"
+        await asyncio.sleep(0.02)
+
+
 def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))

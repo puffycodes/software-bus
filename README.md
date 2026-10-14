@@ -472,7 +472,20 @@ used (e.g. it's already in use), `bl_server` prints
 `error: cannot connect to <ip>:<port> (...)` or
 `error: cannot listen on <ip>:<port> (...)` to stderr and exits with
 status 1. Losing an upstream connection later doesn't stop it; it keeps
-serving its other connections.
+serving its other connections, but doesn't connect to that upstream again.
+
+With `--reconnect true` it keeps trying instead: an upstream that can't be
+reached, at start-up or after its connection is lost, is tried again after
+1 second, then 2, 4 and so on up to 60 seconds between attempts (each a
+little shortened at random, so servers that lost the same upstream don't
+all retry at once). The delay goes back to 1 second after each successful
+connection. The server listens straight away, without waiting for its
+upstreams, and logs each failed attempt as a warning. An unusable
+`--listen` address still exits.
+
+```
+python -m software_bus.bl_server --upstream 10.0.0.1:8787 --listen 127.0.0.1:8787 --reconnect true
+```
 
 `bl_client` connects to a bus node, optionally sends a message, then
 prints any messages it receives in reply. `--message` defaults to `None`,
@@ -527,6 +540,14 @@ It reports an unreachable upstream or unusable `--listen` address the same
 way as `bl_server`. An `--upstream` connection refused by the cycle check is
 reported the same way too, with the reason, e.g.
 `error: cannot connect to 127.0.0.1:8787 (refused by the cycle check: it would create a cycle)`.
+
+`--reconnect true` works as for `bl_server`. A check that couldn't tell
+whether there's a cycle (other links were being added at the same time) is
+tried again like an unreachable upstream. Any other refusal on the first
+attempt still exits as above. On a later attempt (e.g. the tree changed
+while the upstream was down), the server logs it as an error, stops
+trying that upstream, and keeps serving everything else. Subscriptions
+need no help: both ends resend them on the new connection.
 
 `ps_subscribe` connects to a `ps_server`, subscribes to one or more
 required, comma-separated subjects (`--subject`; a subject may be a

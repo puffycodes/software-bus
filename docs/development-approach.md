@@ -33,6 +33,7 @@ How this project is developed and tested. For the commands to install and run th
   - On Windows, `bl_server.exe` is a launcher that runs the real process as a child.
   - On Windows, asyncio keeps a loopback connection to itself in every process.
   - On Python 3.8, `asyncio.wait_for` can return normally even though the task running it was cancelled.
+  - On Windows, a TCP connect to a port nobody listens on takes about 2 seconds to fail, so tests must not assume such an attempt is already over.
   - Socket buffers are much smaller on Linux than on Windows, so a test that sends a large message has to read it at the same time. Run the full suite on both.
 
 ### Documentation upkeep
@@ -47,7 +48,7 @@ How this project is developed and tested. For the commands to install and run th
 - Async tests are still marked `@pytest.mark.asyncio` by convention.
 
 ### Real network, no socket mocks
-- `tests/helpers.py` sets up raw peers on ports the OS assigns: `open_peer_connection`, `accept_one_peer_connection`, `free_port`.
+- `tests/helpers.py` sets up raw peers on ports the OS assigns: `open_peer_connection`, `accept_one_peer_connection`, `free_port`. `wait_until` polls for a condition there is no event for.
 - `accept_one_peer_connection` patches `wait_closed()` so test teardown doesn't hang on Python 3.12.1+.
 - Helpers let a raw peer play along with cycle prevention: `expect_hello`, `greet_as_node`, `answer_query`, `establish_to_raw_peer`.
 

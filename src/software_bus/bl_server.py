@@ -13,15 +13,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 async def run(
-    upstreams: List[Tuple[str, int]], listens: List[Tuple[str, int]]
+    upstreams: List[Tuple[str, int]],
+    listens: List[Tuple[str, int]],
+    reconnect: bool = False,
 ) -> None:
-    await run_server(BaseLayerNode(), upstreams, listens)
+    await run_server(BaseLayerNode(), upstreams, listens, reconnect)
 
 
 def main(argv: Optional[List[str]] = None) -> None:
     args = build_arg_parser().parse_args(argv)
     configure_logging(args.debug)
-    run_until_interrupted(run(args.upstream, args.listen))
+    run_until_interrupted(run(args.upstream, args.listen, args.reconnect))
 
 
 if __name__ == "__main__":
