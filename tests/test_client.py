@@ -5,7 +5,16 @@ import logging
 import pytest
 
 from software_bus import BaseLayerNode, BaseLayerClient
-from software_bus.base_layer import DEFAULT_HOST, DEFAULT_PORT
+from software_bus.base_layer import (
+    DEFAULT_HOST,
+    DEFAULT_PORT,
+    MAX_PAYLOAD_LENGTH,
+    ConnectionTooSlow,
+    PayloadTooLong,
+    ReceivedTooLong,
+)
+
+from helpers import accept_one_peer_connection
 
 
 def test_client_instantiation_defaults():
@@ -383,3 +392,72 @@ async def test_client_close_without_connecting_or_twice_is_harmless():
         assert client.connection is None
     finally:
         await hub.close()
+
+
+@pytest.mark.asyncio
+async def test_client_send_over_the_size_limit_raises_and_keeps_the_connection():
+    server, connected = await accept_one_peer_connection()
+    client = BaseLayerClient()
+    errors = []
+    client.register_connection_error_callback(lambda connection, error: errors.append(error))
+    try:
+        await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+        peer = await asyncio.wait_for(connected, timeout=1)
+
+        with pytest.raises(PayloadTooLong):
+            await client.send(b"x" * (MAX_PAYLOAD_LENGTH + 1))
+        assert errors == [] and client.connection is not None
+
+        payload = b"y" * MAX_PAYLOAD_LENGTH  # exactly at the limit is fine
+        received = asyncio.ensure_future(peer.receive())  # read while it's sent
+        await client.send(payload)
+        assert await asyncio.wait_for(received, timeout=10) == payload
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_client_send_to_a_node_that_stops_reading_fails_after_the_send_timeout():
+    server, connected = await accept_one_peer_connection()  # never reads
+    client = BaseLayerClient()
+    client.send_timeout = 0.3
+    errors = []
+    client.register_connection_error_callback(lambda connection, error: errors.append(error))
+    peer = None
+    try:
+        await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+        peer = await asyncio.wait_for(connected, timeout=1)
+
+        with pytest.raises(ConnectionTooSlow):
+            for _ in range(256):  # until the socket buffers are full
+                await client.send(b"x" * (1024 * 1024))
+        assert len(errors) == 1 and isinstance(errors[0], ConnectionTooSlow)
+        assert client.connection is None
+    finally:
+        await client.close()
+        if peer is not None:
+            peer.writer.transport.abort()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_client_receiving_a_message_over_the_size_limit_loses_the_connection():
+    server, connected = await accept_one_peer_connection()
+    client = BaseLayerClient()
+    lost = asyncio.get_event_loop().create_future()
+    client.register_connection_error_callback(lambda connection, error: lost.set_result(error))
+    try:
+        await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+        peer = await asyncio.wait_for(connected, timeout=1)
+        peer.writer.write((MAX_PAYLOAD_LENGTH + 1).to_bytes(4, "big"))  # no payload follows
+        await peer.writer.drain()
+
+        assert isinstance(await asyncio.wait_for(lost, timeout=1), ReceivedTooLong)
+        assert client.connection is None
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()

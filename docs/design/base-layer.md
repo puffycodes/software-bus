@@ -1,5 +1,11 @@
 # Base Layer Design
 
+## Definitions
+
+- **Maximum payload length** The largest payload a single message can carry, 16 MiB (16777216 bytes). See "Base Layer Wire Format" in `data-format.md`.
+- **Send timeout** 30 seconds. The longest time data may wait to be handed to the operating system for one connection.
+- **Send queue limit** 64 MiB (four times the maximum payload length). The most data a node keeps waiting to be sent on one connection.
+
 ## Base Layer Node Class
 
 Functionalities
@@ -22,6 +28,17 @@ Functionalities
     - If the data is received from an upstream connections, call the upstream receive callback function with the data as a parameter.
     - If the data is received from a downstream connections, call the downstream receive callback function with the data as a parameter.
     - If the callback fails (raises an error), log the error with its details and carry on with the next data. The connection is kept, and this is not a connection error.
+- **Sending Data** Whenever the node sends data to a connection (relaying, or on behalf of a layer on top):
+    - If the data is longer than the maximum payload length, send nothing to any connection, and log an error. This is not a connection error: the connections are kept.
+        - A node relays only data it has received, which is never longer than the limit, so this only happens when a layer on top sends too much.
+    - Each connection has its own send queue, sent in order by a task of its own. Sending data to a connection adds it to that connection's queue, and does not wait for it to be sent.
+        - This keeps one slow connection from holding up the others. Without it, relaying data to a peer that has stopped reading would block the connection the data came from, and so every message from it to every other peer, for as long as that peer stays silent.
+        - Messages to one connection are always sent in the order they were queued. There is no ordering between different connections.
+    - A connection is too slow if:
+        - adding the data would make its queue hold more than the send queue limit, or
+        - the send timeout passes while the data at the front of its queue is still being sent.
+    - A connection that is too slow has failed (see Exceptions Related to a Connection). The data waiting in its queue is discarded.
+        - The rest of the tree loses that branch, as for any other failed connection. That is better than every other peer losing all its traffic while one peer is stuck.
 
 - **Register Upstream Connection Error Callback** Provide a function to call when there is error with an upstream connection.
     - A default upstream connection error callback will be registered during instantiation.
@@ -38,6 +55,8 @@ Functionalities
         - Peer dropped connection.
         - Failure to send data to a connection.
         - Failure to receive data from a connection.
+        - Receiving a message whose length is greater than the maximum payload length. The payload is not read.
+        - The connection is too slow (see Sending Data).
     - Action depends on whether it is an upstream connection or a downstream connection.
         - If it is an upstream connection:
             - Remove the upstream connection from the list of upstream connection.
@@ -47,9 +66,11 @@ Functionalities
             - Remove the downstream connection from the list of downstream connections.
             - Call the downstream connection error callback with the connection details and error.
             - Close the downstream connection.
+    - Closing a failed connection discards any data not sent yet on it, rather than waiting to send it.
 
 - **Close** Stop accepting connections on every IP/port, and close every upstream and downstream connection.
     - Close the connections before waiting for the listening sockets to finish closing: waiting may otherwise never end while accepted connections are still open.
+    - Data still waiting in a send queue, or not yet taken by the operating system, is discarded, not sent: Close does not wait for slow peers.
     - Afterwards the lists of IP/port and of connections are empty.
     - Closing the node itself is not an error, and does not call the connection error callbacks. (The peers at the other end of the connections do see them dropped.)
 - **Internal Data** Keep the following lists:
@@ -69,6 +90,9 @@ Functionalities
         - To connect again, Close first. Once the connection has been lost (see Exceptions Related to the Connection), the client is no longer connected and can Connect again.
 - **Send** Send data to the TCP connection established.
     - If the client is not connected, report an error to the caller and send nothing.
+    - If the data is longer than the maximum payload length, report an error to the caller and send nothing. This is not a connection error: the connection is kept, and the connection error callback is not called.
+    - Send waits until the data has been handed to the operating system, so a caller sending many messages is slowed down to the speed the node takes them at. The client has a single connection, so this holds up only its own caller.
+    - If the send timeout passes before the data has been handed over, the connection has failed: report it as a failure to send (see Exceptions Related to the Connection).
 - **Register Receive Callback** Provide a function to call when data are received.
     - Default is None, meaning not to call any function.
 - **Action Upon Receiving of Data** Call the given function, if any, with the data as one of the parameters.
@@ -81,6 +105,7 @@ Functionalities
         - Peer dropped connection.
         - Failure to send data to the connection.
         - Failure to receive data from the connection.
+        - Receiving a message whose length is greater than the maximum payload length. The payload is not read.
     - Action:
         - Forget the connection, so that the client is no longer connected.
         - Call the connection error callback with the connection details and error.

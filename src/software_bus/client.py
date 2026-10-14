@@ -7,9 +7,12 @@ from typing import Any, Callable, Optional
 from .base_layer import (
     DEFAULT_HOST,
     DEFAULT_PORT,
+    DEFAULT_SEND_TIMEOUT,
     Connection,
     ConnectionErrorCallback,
+    ConnectionTooSlow,
     _maybe_await,
+    check_payload_length,
 )
 
 logger = logging.getLogger(__name__)
@@ -21,6 +24,8 @@ class BaseLayerClient:
     """A client that connects to a Base Layer instance, sends data on that
     connection, and invokes a registered callback with any data received.
     """
+
+    send_timeout = DEFAULT_SEND_TIMEOUT
 
     def __init__(self) -> None:
         self.connection: Optional[Connection] = None
@@ -52,16 +57,25 @@ class BaseLayerClient:
         return connection
 
     async def send(self, data: bytes) -> None:
-        """Send `data`; raises RuntimeError, sending nothing, if not connected.
+        """Send `data`, waiting until it is handed to the operating system.
 
-        A send failure is reported to the connection error callback and then
-        re-raised to the caller.
+        Raises RuntimeError if not connected, or PayloadTooLong if `data` is
+        over MAX_PAYLOAD_LENGTH; either way nothing is sent and the connection
+        is kept. A send failure, including the node not taking the data within
+        `send_timeout` (ConnectionTooSlow), is reported to the connection error
+        callback and then re-raised to the caller.
         """
         connection = self.connection
         if connection is None:
             raise RuntimeError("not connected")
+        check_payload_length(len(data))
         try:
-            await connection.send(data)
+            try:
+                await asyncio.wait_for(connection.send(data), self.send_timeout)
+            except asyncio.TimeoutError:
+                raise ConnectionTooSlow(
+                    f"data not taken within {self.send_timeout} seconds"
+                ) from None
         except OSError as exc:
             await self._handle_connection_error(connection, exc)
             raise
@@ -97,7 +111,7 @@ class BaseLayerClient:
         try:
             await _maybe_await(self._connection_error_callback(connection, error))
         finally:
-            await connection.close()
+            await connection.close(discard_unsent=True)
 
     async def _default_connection_error_callback(
         self, connection: Connection, error: Optional[BaseException]

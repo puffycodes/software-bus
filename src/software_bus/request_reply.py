@@ -33,6 +33,7 @@ from .pubsub import (
     PublishCallback,
     PubSubClient,
     _decode_subject,
+    check_publish_length,
 )
 
 logger = logging.getLogger(__name__)
@@ -270,6 +271,10 @@ class RequestReplyClient:
         _check_request_subject(request_subject, reply_subject)
         if timeout < 0:
             raise ValueError(f"timeout must be >= 0, not {timeout!r}")
+        request_message_length = (
+            _SUBJECT_LENGTH_SIZE + len(reply_subject.encode("utf-8")) + len(payload)
+        )
+        check_publish_length(derived_request_subject(request_subject), request_message_length)
 
         request = _PendingRequest(reply_subject, callback)
 
@@ -317,6 +322,7 @@ class RequestReplyClient:
         """Publish `payload` as a reply to the requestor listening on `reply_subject`."""
         if not is_valid_reply_subject(reply_subject):
             raise ValueError(f"{reply_subject!r} is not a valid reply subject")
+        check_publish_length(reply_subject, len(payload))
         await self._client.publish(reply_subject, payload)
 
     async def _run_timer(self, request: _PendingRequest, timeout: float) -> None:

@@ -5,7 +5,7 @@ import uuid
 import pytest
 
 from software_bus import PubSubClient, PubSubNode
-from software_bus.base_layer import Connection
+from software_bus.base_layer import MAX_PAYLOAD_LENGTH, Connection, PayloadTooLong
 from software_bus.pubsub import (
     PublishMessage,
     ReachabilityQueryMessage,
@@ -1291,6 +1291,35 @@ async def test_publish_to_wildcard_or_too_long_subject_raises_and_sends_nothing(
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(peer.receive(), timeout=0.1)
         assert received == []  # not delivered locally either
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_publish_over_the_size_limit_raises_and_sends_nothing():
+    server, connected = await accept_one_peer_connection()
+    client = PubSubClient()
+    received = []
+    try:
+        await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+        peer = await asyncio.wait_for(connected, timeout=1)
+        await client.subscribe("a.b", lambda matched, actual, payload: received.append(actual))
+        await asyncio.wait_for(peer.receive(), timeout=1)  # the subscribe message
+        longest = MAX_PAYLOAD_LENGTH - 6  # tag, subject length and "a.b"
+
+        with pytest.raises(PayloadTooLong):
+            await client.publish("a.b", b"x" * (longest + 1))
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(peer.receive(), timeout=0.1)
+        assert received == []  # not delivered locally either
+
+        sent = asyncio.ensure_future(peer.receive())  # read while it's sent
+        await client.publish("a.b", b"x" * longest)
+        sent = await asyncio.wait_for(sent, timeout=10)
+        assert decode_message(sent) == PublishMessage("a.b", b"x" * longest)
+        assert received == ["a.b"]
     finally:
         await client.close()
         server.close()

@@ -32,6 +32,7 @@ from .base_layer import (
     Connection,
     ConnectionErrorCallback,
     _maybe_await,
+    check_payload_length,
 )
 from .client import BaseLayerClient
 from .subject_matcher import StringPatternMatcher
@@ -131,6 +132,15 @@ def check_publish_subject(subject: str) -> None:
     check_subject(subject)
     if "*" in subject.split("."):
         raise ValueError(f"cannot publish to {subject!r}: it contains a wild card")
+
+
+def check_publish_length(subject: str, payload_length: int) -> None:
+    """Raise PayloadTooLong if a publish of `payload_length` bytes to `subject`
+    would, once encoded, be over the base layer's maximum payload length."""
+    tag_size = 1
+    check_payload_length(
+        tag_size + _SUBJECT_LENGTH_SIZE + len(subject.encode("utf-8")) + payload_length
+    )
 
 
 def encode_message(message: Message) -> bytes:
@@ -816,12 +826,15 @@ class PubSubClient:
         """Publish `payload` under `subject`.
 
         Raises ValueError, sending nothing, if `subject` contains a wild card
-        or is too long. The node never sends a publish back to its sender, so
-        this client's own matching subscription callbacks are called here directly,
-        once the publish has been sent. If it can't be sent (e.g. not connected),
-        the error is raised and none of them is called.
+        or is too long, or PayloadTooLong (a ValueError) if the encoded publish
+        would be over the maximum payload length. The node never sends a
+        publish back to its sender, so this client's own matching subscription
+        callbacks are called here directly, once the publish has been sent. If
+        it can't be sent (e.g. not connected), the error is raised and none of
+        them is called.
         """
         check_publish_subject(subject)
+        check_publish_length(subject, len(payload))
         message = PublishMessage(subject, payload)
         await self._client.send(encode_message(message))
         await self._deliver(message)

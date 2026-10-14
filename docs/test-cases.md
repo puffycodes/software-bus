@@ -1,6 +1,6 @@
 # Test Cases
 
-All 373 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 385 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -17,7 +17,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Only a whole `*` part is a wildcard: `ab` doesn't match `a*`, which only matches `a*` itself.
   - Empty parts count like any other part: `a..b` matches `a.*.b` and `a..b`, `a.b` doesn't match `a..b`, `a.` matches `a.*`, and `a` doesn't match `a.*`.
 
-## Base layer node (`test_base_layer.py`, 27 cases)
+## Base layer node (`test_base_layer.py`, 33 cases)
 - **Setup and listening**
   - A new node isn't listening and has no connections.
   - Listening with no arguments uses the default address, 127.0.0.1:8787.
@@ -31,6 +31,9 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Each message is sent as a 4-byte big-endian length followed by the payload, and an empty payload is just the 4-byte length.
   - Message boundaries are kept however TCP delivers the bytes: several messages (one of them empty) in a single read, and one message split in the middle of its length and of its payload.
   - A 2 MiB message is relayed intact.
+  - A message of exactly 16 MiB, the size limit, is relayed intact.
+  - A peer announcing a message over 16 MiB is a connection error: the node drops the connection without waiting for the payload.
+  - Sending data over 16 MiB sends nothing, logs an error and keeps the connection: the next message still arrives.
 - **Relaying data**
   - Data from a downstream connection goes to every upstream connection and every other downstream connection.
   - Data from an upstream connection goes to every downstream connection and every other upstream connection.
@@ -45,12 +48,16 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - An error callback can be an async function, for upstream and for downstream connections.
   - The default error callbacks log a message.
   - If sending to one connection fails while relaying, only that connection is removed; the others keep receiving.
+- **Slow peers**
+  - A peer that stops reading is dropped once a send to it takes longer than the send timeout, and the other peers get every message before and after.
+  - A connection whose send queue would go over its limit is dropped; another connection sent the same message still gets it.
+  - Closing a node doesn't wait for a peer that has stopped reading.
 - **Closing**
   - Closing a node empties its lists of connections and listening addresses.
   - Closing a node doesn't report its own connections as errors, but the peer at the other end does see its connection dropped.
   - Closing a node twice, or closing one that never listened, does no harm.
 
-## Base layer client (`test_client.py`, 18 cases)
+## Base layer client (`test_client.py`, 21 cases)
 - **Connecting**
   - A new client isn't connected and has no receive callback.
   - The client's default address to connect to is the same as the node's default listening address.
@@ -64,6 +71,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - The receive callback is called with each piece of data received.
   - The receive callback can be an async function.
   - Receiving data with no callback registered causes no error.
+  - Sending over 16 MiB raises an error, sends nothing and keeps the connection; exactly 16 MiB is sent.
   - If the receive callback fails, only that one message is lost: the client stays connected, the next message still arrives, and the failure is logged.
 - **Errors and closing**
   - A socket error while receiving ends the receive loop quietly instead of crashing it.
@@ -72,8 +80,10 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Closing the client does not call the connection error callback.
   - Closing a client that never connected, or closing it twice, does no harm.
   - A failed send is reported to the connection error callback and also raised to the caller.
+  - A send the node doesn't take within the send timeout fails: it's reported to the connection error callback and raised.
+  - A message announcing more than 16 MiB loses the connection, without waiting for the payload.
 
-## Publish/subscribe (`test_pubsub.py`, 66 cases)
+## Publish/subscribe (`test_pubsub.py`, 67 cases)
 - **Wire format (20 cases)**
   - Subscription and publish messages have exactly the byte layout in `data-format.md`, including a subject's length counted in UTF-8 bytes.
   - Bytes after a subscription's subject are ignored.
@@ -92,6 +102,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Publishing while not connected raises an error and calls none of the client's own callbacks.
   - Publishing to a subject with a wild card part (`a.*`, or just `*`) or one that's too long raises an error, sends nothing to the node and calls none of the client's own callbacks (3 cases).
   - A `*` inside a part (`a.b*`) is not a wild card, so publishing to it is allowed.
+  - Publishing a payload one byte too big for the 16 MiB limit raises an error, sends nothing and calls none of the client's own callbacks; the largest payload that fits is sent and delivered locally.
   - Only the first callback on a subject sends a subscription to the node.
   - Only removing the last callback on a subject sends an unsubscription.
   - A callback subscribed twice to the same subject is called twice per publish, and one unsubscribe removes only one of its registrations: it is then called once, and the second unsubscribe sends the unsubscription.
@@ -179,7 +190,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A node that adds two links at once checks them one at a time.
   - Two nodes adding links at the same time can't close a cycle between them.
 
-## Request/reply (`test_request_reply.py`, 40 cases)
+## Request/reply (`test_request_reply.py`, 42 cases)
 - **Wire format and subjects (17 cases)**
   - A Request Message has exactly the byte layout in `data-format.md`, and survives encoding and decoding unchanged.
   - A Request Message with an empty payload, and one with binary content and a non-ASCII reply subject, survive encoding and decoding (2 cases).
@@ -190,6 +201,8 @@ Some behaviour can't be tested automatically; those tests are described at the e
 - **Parameter checks**
   - A wildcard request subject, a derived subject over the length limit, a negative timeout and an invalid reply subject are all rejected with an error, leaving nothing subscribed or registered.
   - The longest request subjects allowed (65526 bytes to accept requests, 65495 bytes to send one) are accepted.
+  - A request or reply payload one byte too big for the 16 MiB limit is rejected with an error, leaving nothing subscribed or registered.
+  - The largest request and reply payloads that fit are sent, and arrive intact.
 - **Requests and replies**
   - A request reaches an acceptor in another client, which gets its request subject, reply subject and payload; the reply reaches the requester, and returning true ends the wait: the reply subscription is removed and no `TIMED_OUT` call follows.
   - One callback accepting requests on two subjects is told which request subject each request was sent to.

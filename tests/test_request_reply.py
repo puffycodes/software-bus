@@ -4,6 +4,7 @@ import logging
 import pytest
 
 from software_bus import PubSubClient, PubSubNode, ReplyStatus, RequestMessage, RequestReplyClient
+from software_bus.base_layer import MAX_PAYLOAD_LENGTH, PayloadTooLong
 from software_bus.request_reply import (
     decode_request,
     derived_reply_subject,
@@ -117,6 +118,52 @@ async def test_subjects_at_the_length_limits_are_accepted():
         await client.send_request("x" * 65495, b"", lambda *args: None, timeout=0)
     finally:
         await client.close()
+        await node.close()
+
+
+# Request to "a": the publish is tag + 2 + "_request.a" (10) + 2 + "_reply.a.<id>" (41) + payload.
+# A reply to "_reply.a.<id>" is tag + 2 + 41 + payload.
+LONGEST_REQUEST_PAYLOAD = MAX_PAYLOAD_LENGTH - 56
+LONGEST_REPLY_PAYLOAD = MAX_PAYLOAD_LENGTH - 44
+
+
+@pytest.mark.asyncio
+async def test_payloads_over_the_size_limit_are_rejected_and_change_nothing():
+    client = RequestReplyClient()  # not connected: a check that passed would fail on sending
+    with pytest.raises(PayloadTooLong):
+        await client.send_request("a", b"x" * (LONGEST_REQUEST_PAYLOAD + 1), lambda *args: None)
+    with pytest.raises(PayloadTooLong):
+        await client.send_reply(f"_reply.a.{ID}", b"x" * (LONGEST_REPLY_PAYLOAD + 1))
+    assert subscribed_subjects(client) == set()
+    assert client._requests == {}
+
+
+@pytest.mark.asyncio
+async def test_payloads_at_the_size_limit_are_accepted():
+    node, port = await start_node()
+    replier = await connected_client(port)
+    requester = await connected_client(port)
+    requests = []
+    reply = asyncio.get_event_loop().create_future()
+    try:
+        async def on_request(request_subject, reply_subject, payload):
+            requests.append(len(payload))
+            await replier.send_reply(reply_subject, b"y" * LONGEST_REPLY_PAYLOAD)
+
+        await replier.accept_request("a", on_request)
+        await asyncio.sleep(0.05)
+
+        def on_reply(reply_subject, payload, status):
+            reply.set_result((len(payload), status))
+            return True
+
+        await requester.send_request("a", b"x" * LONGEST_REQUEST_PAYLOAD, on_reply, timeout=10)
+
+        assert await asyncio.wait_for(reply, timeout=10) == (LONGEST_REPLY_PAYLOAD, REPLY)
+        assert requests == [LONGEST_REQUEST_PAYLOAD]
+    finally:
+        await requester.close()
+        await replier.close()
         await node.close()
 
 

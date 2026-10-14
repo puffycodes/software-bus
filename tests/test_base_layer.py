@@ -4,6 +4,7 @@ import logging
 import pytest
 
 from software_bus import BaseLayerNode
+from software_bus.base_layer import MAX_PAYLOAD_LENGTH, ConnectionTooSlow, ReceivedTooLong
 
 from helpers import accept_one_peer_connection, open_peer_connection
 
@@ -415,6 +416,8 @@ async def test_relay_to_send_failure_removes_only_the_failing_connection(monkeyp
         monkeypatch.setattr(failing_connection, "send", failing_send)
 
         await hub._relay_to([failing_connection, good_connection], b"data")
+        # sends happen in each connection's own send task
+        await asyncio.wait_for(failing_connection.send_task, timeout=1)
 
         assert errors == [failing_connection]
         assert hub.downstream_connections == [good_connection]
@@ -659,3 +662,182 @@ async def test_closing_a_node_that_never_listened_is_harmless():
     hub = BaseLayerNode()
     await asyncio.wait_for(hub.close(), timeout=1)
     assert hub.listening_addresses == []
+
+
+# --- message size limit ------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_payload_at_the_size_limit_is_relayed():
+    hub = BaseLayerNode()
+    peer_a = peer_b = None
+    try:
+        server = await hub.accept_connection(port=0)
+        hub_port = server.sockets[0].getsockname()[1]
+        peer_a = await _open_peer_connection("127.0.0.1", hub_port)
+        peer_b = await _open_peer_connection("127.0.0.1", hub_port)
+        await asyncio.sleep(0.05)
+
+        payload = b"x" * MAX_PAYLOAD_LENGTH
+        await peer_a.send(payload)
+
+        assert await asyncio.wait_for(peer_b.receive(), timeout=10) == payload
+    finally:
+        await hub.close()
+        if peer_a is not None:
+            await peer_a.close()
+        if peer_b is not None:
+            await peer_b.close()
+
+
+@pytest.mark.asyncio
+async def test_message_over_the_size_limit_is_a_connection_error_and_not_read():
+    hub = BaseLayerNode()
+    errors = []
+    hub.register_downstream_connection_error_callback(
+        lambda connection, error: errors.append(error)
+    )
+    peer = None
+    try:
+        server = await hub.accept_connection(port=0)
+        peer = await _open_peer_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        # only the length: the node must give up without waiting for the payload
+        peer.writer.write((MAX_PAYLOAD_LENGTH + 1).to_bytes(4, "big"))
+        await peer.writer.drain()
+
+        with pytest.raises((asyncio.IncompleteReadError, ConnectionError)):
+            await asyncio.wait_for(peer.receive(), timeout=1)  # the node drops the connection
+        assert len(errors) == 1 and isinstance(errors[0], ReceivedTooLong)
+        assert hub.downstream_connections == []
+    finally:
+        await hub.close()
+        if peer is not None:
+            await peer.close()
+
+
+@pytest.mark.asyncio
+async def test_sending_data_over_the_size_limit_sends_nothing_and_keeps_the_connections(caplog):
+    hub = BaseLayerNode()
+    errors = []
+    hub.register_downstream_connection_error_callback(
+        lambda connection, error: errors.append(error)
+    )
+    peer = None
+    try:
+        server = await hub.accept_connection(port=0)
+        peer = await _open_peer_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        await asyncio.sleep(0.05)
+        (connection,) = hub.downstream_connections
+
+        with caplog.at_level(logging.ERROR, logger="software_bus.base_layer"):
+            await hub._relay_to([connection], b"x" * (MAX_PAYLOAD_LENGTH + 1))
+        await hub._relay_to([connection], b"next")
+
+        assert await asyncio.wait_for(peer.receive(), timeout=1) == b"next"
+        assert "over the" in caplog.text
+        assert errors == []
+        assert hub.downstream_connections == [connection]
+    finally:
+        await hub.close()
+        if peer is not None:
+            await peer.close()
+
+
+# --- slow peers ----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_peer_that_stops_reading_is_dropped_and_the_others_keep_receiving():
+    hub = BaseLayerNode()
+    hub.send_timeout = 0.3
+    errors = []
+    hub.register_downstream_connection_error_callback(
+        lambda connection, error: errors.append((connection, error))
+    )
+    sender = reader = stalled = None
+    try:
+        server = await hub.accept_connection(port=0)
+        hub_port = server.sockets[0].getsockname()[1]
+        sender = await _open_peer_connection("127.0.0.1", hub_port)
+        reader = await _open_peer_connection("127.0.0.1", hub_port)
+        stalled = await _open_peer_connection("127.0.0.1", hub_port)  # never reads
+        await asyncio.sleep(0.05)
+
+        # each message fills the stalled peer's socket buffers further; the reader
+        # must keep getting every one, before and after the stalled peer is dropped
+        message = b"x" * (1024 * 1024)
+        for _ in range(256):
+            await sender.send(message)
+            assert await asyncio.wait_for(reader.receive(), timeout=5) == message
+            if errors:
+                break
+        else:
+            pytest.fail("the stalled peer was never dropped")
+        for _ in range(3):
+            await sender.send(b"after")
+            assert await asyncio.wait_for(reader.receive(), timeout=1) == b"after"
+
+        assert len(errors) == 1 and isinstance(errors[0][1], ConnectionTooSlow)
+        assert len(hub.downstream_connections) == 2
+        assert errors[0][0] not in hub.downstream_connections
+    finally:
+        await hub.close()
+        for peer in (sender, reader, stalled):
+            if peer is not None:
+                peer.writer.transport.abort()
+
+
+@pytest.mark.asyncio
+async def test_a_connection_whose_send_queue_would_go_over_the_limit_is_dropped():
+    hub = BaseLayerNode()
+    hub.send_queue_limit = 100
+    errors = []
+    hub.register_downstream_connection_error_callback(
+        lambda connection, error: errors.append((connection, error))
+    )
+    peer_a = peer_b = None
+    try:
+        server = await hub.accept_connection(port=0)
+        hub_port = server.sockets[0].getsockname()[1]
+        peer_a = await _open_peer_connection("127.0.0.1", hub_port)
+        peer_b = await _open_peer_connection("127.0.0.1", hub_port)
+        await asyncio.sleep(0.05)
+        full, other = hub.downstream_connections
+
+        # queued back to back, so the first is still waiting when the second comes
+        await hub._relay_to([full], b"x" * 60)
+        await hub._relay_to([full, other], b"y" * 60)
+
+        assert len(errors) == 1
+        assert errors[0][0] is full and isinstance(errors[0][1], ConnectionTooSlow)
+        assert hub.downstream_connections == [other]
+        peers = {peer.writer.get_extra_info("sockname"): peer for peer in (peer_a, peer_b)}
+        assert await asyncio.wait_for(peers[other.address].receive(), timeout=1) == b"y" * 60
+    finally:
+        await hub.close()
+        for peer in (peer_a, peer_b):
+            if peer is not None:
+                await peer.close()
+
+
+@pytest.mark.asyncio
+async def test_closing_a_node_does_not_wait_for_a_peer_that_stopped_reading():
+    hub = BaseLayerNode()
+    hub.send_timeout = 60  # so the stalled peer isn't dropped first
+    stalled = None
+    try:
+        server = await hub.accept_connection(port=0)
+        stalled = await _open_peer_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        await asyncio.sleep(0.05)
+        (connection,) = hub.downstream_connections
+        for _ in range(32):
+            await hub._relay_to([connection], b"x" * (1024 * 1024))
+        await asyncio.sleep(0.2)  # the send task is now stuck on the full socket
+        assert connection.send_queue
+
+        await asyncio.wait_for(hub.close(), timeout=2)
+        assert hub.downstream_connections == []
+    finally:
+        await hub.close()
+        if stalled is not None:
+            stalled.writer.transport.abort()

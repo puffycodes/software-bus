@@ -32,6 +32,8 @@ How this project is developed and tested. For the commands to install and run th
   - From 3.12.1, `Server.wait_closed()` hangs until every connection is closed.
   - On Windows, `bl_server.exe` is a launcher that runs the real process as a child.
   - On Windows, asyncio keeps a loopback connection to itself in every process.
+  - On Python 3.8, `asyncio.wait_for` can return normally even though the task running it was cancelled.
+  - Socket buffers are much smaller on Linux than on Windows, so a test that sends a large message has to read it at the same time. Run the full suite on both.
 
 ### Documentation upkeep
 - `CLAUDE.md` and `README.md` are updated along with each feature.
@@ -64,7 +66,7 @@ How this project is developed and tested. For the commands to install and run th
 - Inputs are table-driven with `parametrize` where it fits.
 
 ### Regression tests for subtle fixes
-- Each concurrency safeguard has a test that fails without it, for example `_check_lock` and answering "unknown" while a check is running, or, in request/reply, starting the timer before publishing and ending a request that was sent while the client was being closed.
+- Each concurrency safeguard has a test that fails without it, for example `_check_lock` and answering "unknown" while a check is running, the per-connection send queue (a peer that stops reading mustn't stall the others), or, in request/reply, starting the timer before publishing and ending a request that was sent while the client was being closed.
 
 ### The test catalogue
 - [`test-cases.md`](test-cases.md) describes every automated test in plain English, grouped by file with a count for each.

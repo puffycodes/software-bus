@@ -71,6 +71,7 @@
     - Upon receiving a malformed message (see `data-format.md`), log it and ignore it. The connection is kept.
 - **Exception Handling**
     - When error occurs on a connection, remove the connection from every subject, applying the unsubscribe rules above for each subject as if the connection had sent an unsubscribe message.
+    - A connection dropped by the base layer for being too slow (see Sending Data in `base-layer.md`) is a connection error like any other: it is unsubscribed from every subject, and if it is pending, its cycle check ends.
     - When error occurs on a pending connection, the cycle check for it ends straight away, and Establish Connection reports the error to its caller.
         - This holds whatever step the check is at: waiting for its turn (see Cycle Prevention), for a Hello message, for the replies to its Reachability Query, or during the random delay between attempts. The check does not wait for that step to finish: a node that is still checking answers other nodes' queries with unknown, and holds up its own other new connections.
 - **Close** Close the Base Layer Node (which stops accepting connections and closes every connection), stop answering any reachability queries still in progress, and forget every subscription.
@@ -182,6 +183,7 @@ A node that is checking therefore answers every query it receives with unknown:
         - payload of the publish message
     - If the subject contains a wild card, or is too long to encode (see `data-format.md`), report an error and send nothing. A published subject is always literal.
         - Nodes do not check this: a publish to a subject with a wild card from a client that does not check it is routed like any other, with the "*" matched as a plain character.
+    - If the publish message, once encoded, is longer than the maximum payload length (see `data-format.md`), report an error and send nothing. The client's own subscription callbacks are not called.
     - Send a publish message to the upstream node with the given subject and payload.
         - If it cannot be sent (e.g. the client is not connected, or the connection fails while sending), report the error, and do not call the client's own subscription callbacks below.
     - Once it has been sent, if the client itself has subscribed subjects that match the given subject, call their subscription callbacks too, the same way as for a received publish message. The node does not send a publish back to the connection it came from, so this is how a client receives its own publishes.

@@ -125,6 +125,15 @@ To react when a connection opens, register a function with
 `register_downstream_new_connection_callback`; it's called with the new
 `Connection`. None is registered by default.
 
+Each connection has its own send queue, so relaying to a peer that has
+stopped reading doesn't hold up the others. A peer that's too slow is
+dropped like any other failed connection (the error is a
+`ConnectionTooSlow`): either it doesn't take queued data within
+`send_timeout` (30 seconds), or its queue would hold more than
+`send_queue_limit` (64 MiB). Both are attributes you can change on a node.
+Closing a node, or dropping a failed connection, discards data not sent yet
+rather than waiting for a slow peer.
+
 #### Wire format
 
 See [`docs/design/data-format.md`](docs/design/data-format.md) for the
@@ -144,6 +153,11 @@ There's no message-type byte at this layer; `data` is opaque to
 `BaseLayerNode`/`BaseLayerClient` and is relayed as-is. It's up to
 whatever's built on top — such as the pub/sub layer below — to give that
 payload further structure.
+
+`length` is at most `MAX_PAYLOAD_LENGTH`, 16 MiB, for every node and
+client. Sending more raises `PayloadTooLong` (a `ValueError`) and sends
+nothing. Receiving a larger `length` drops the connection
+(`ReceivedTooLong`) without reading the payload.
 
 ### `BaseLayerClient` — a leaf client
 
@@ -177,7 +191,11 @@ asyncio.run(main())
 If the connection drops, or a send/receive on it fails, the client forgets
 it (`client.connection` becomes `None`), calls its connection error callback
 with the `Connection` and the exception, and closes it. A failed `send` also
-re-raises the error to the caller. The default callback just logs; register
+re-raises the error to the caller. `send` waits until the operating system
+has taken the data; if that takes longer than the client's `send_timeout`
+(30 seconds), the send fails with `ConnectionTooSlow`. Data over
+`MAX_PAYLOAD_LENGTH` raises `PayloadTooLong` without touching the
+connection. The default callback just logs; register
 your own to react, e.g. to reconnect:
 
 ```python
@@ -337,7 +355,10 @@ only go between nodes.
 `subject_length` caps subjects at 65535 UTF-8 bytes. A publish payload has
 no length field of its own — it's simply everything left in the message
 after the subject, since the outer base layer framing already delimits the
-whole message.
+whole message. The whole message must fit the base layer's 16 MiB limit,
+so a publish payload can be at most 16777216 − 3 − the subject's UTF-8
+length; `publish` raises `PayloadTooLong` beyond that. Requests and replies
+are checked the same way before anything is sent.
 
 ### `RequestReplyClient` — request/reply
 

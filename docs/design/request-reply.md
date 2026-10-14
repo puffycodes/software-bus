@@ -19,6 +19,7 @@
         - **Send Request** uses both derived subjects; the **Derived Reply Subject** is the longer, so the **request subject** can be at most 65495 bytes.
     - The **timeout** given to **Send Request** must be greater than or equal to 0.
     - The **reply subject** given to **Send Reply** must be a **Valid Reply Subject**. This keeps a request from making its acceptors publish to an ordinary Publish and Subscribe subject (see **Reserved Subjects**).
+    - The **request payload** given to **Send Request**, and the **reply payload** given to **Send Reply**, must be short enough that the Publish Message carrying it fits the maximum payload length (see `data-format.md`). For a request, this is the Request Message, including its **reply subject**.
 
 ## Reserved Subjects
 

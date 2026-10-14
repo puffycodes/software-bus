@@ -12,6 +12,10 @@ Every connection is framed the same way, regardless of what layer is on top of i
 
 - `length` is the number of bytes in `payload`, encoded as an unsigned 4-byte big-endian integer.
 - `payload` is opaque to the base layer: it is handed unmodified to the receive callback, and to peers when relayed.
+- `length` must not be greater than the **maximum payload length**, 16 MiB (16777216 bytes).
+    - Every implementation uses the same limit, so that a message one node accepts is never refused by the next node it is relayed to.
+    - A sender must not send a longer payload: it reports an error and sends nothing (see `base-layer.md`).
+    - A receiver that reads a `length` greater than the limit must not read the payload. The connection has failed (see Exceptions Related to a Connection in `base-layer.md`): there is no way to find the start of the next message without reading the whole payload, and reading it is what the limit is there to prevent.
 
 ## Publish and Subscribe Wire Format
 
@@ -46,6 +50,7 @@ Tags `0x03`–`0x05` are used only between nodes, for cycle prevention (see `pub
 
 - `subject` is encoded the same way as in the Subscription Message.
 - `payload` is the published content: every byte after the subject, taken as-is with no further framing.
+- The whole Publish Message, including its tag and subject, is the base layer's `payload`, so it must fit the maximum payload length. The longest `payload` a publish can carry is therefore 16777216 − 3 − the length of the encoded subject.
 
 ### Hello Message
 

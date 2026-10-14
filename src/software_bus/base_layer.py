@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,33 @@ Address = Tuple[str, int]
 # payload, since TCP gives no message boundaries of its own.
 _LENGTH_PREFIX_SIZE = 4
 
+# The most a single message's payload can be (docs/design/data-format.md); the
+# same for every implementation, so a node never relays what the next one refuses.
+MAX_PAYLOAD_LENGTH = 16 * 1024 * 1024
+
+DEFAULT_SEND_TIMEOUT = 30.0
+DEFAULT_SEND_QUEUE_LIMIT = 4 * MAX_PAYLOAD_LENGTH
+
+
+class PayloadTooLong(ValueError):
+    """Data to send is longer than MAX_PAYLOAD_LENGTH. Nothing is sent; not a connection error."""
+
+
+class ReceivedTooLong(ConnectionError):
+    """A peer announced a message longer than MAX_PAYLOAD_LENGTH; the connection has failed."""
+
+
+class ConnectionTooSlow(ConnectionError):
+    """A peer didn't take data within the send timeout, or its send queue would be too full."""
+
+
+def check_payload_length(length: int) -> None:
+    """Raise PayloadTooLong if a payload of `length` bytes can't be sent as one message."""
+    if length > MAX_PAYLOAD_LENGTH:
+        raise PayloadTooLong(
+            f"payload is {length} bytes, over the {MAX_PAYLOAD_LENGTH}-byte limit"
+        )
+
 
 @dataclass
 class Connection:
@@ -25,6 +53,10 @@ class Connection:
     reader: asyncio.StreamReader
     writer: asyncio.StreamWriter
     background_task: Optional[asyncio.Task] = None
+    # a node's outgoing data, sent in order by send_task (see BaseLayerNode._relay_to)
+    send_queue: Deque[bytes] = field(default_factory=deque)
+    queued_bytes: int = 0
+    send_task: Optional[asyncio.Task] = None
 
     @property
     def address(self) -> Optional[Tuple]:
@@ -37,18 +69,33 @@ class Connection:
     async def receive(self) -> bytes:
         header = await self.reader.readexactly(_LENGTH_PREFIX_SIZE)
         length = int.from_bytes(header, "big")
+        if length > MAX_PAYLOAD_LENGTH:
+            # not read: skipping it would mean reading it, which the limit is there to prevent
+            raise ReceivedTooLong(
+                f"peer sent a {length}-byte message, over the {MAX_PAYLOAD_LENGTH}-byte limit"
+            )
         return await self.reader.readexactly(length)
 
-    async def close(self) -> None:
-        # don't cancel the relay loop when it is the one closing its own connection
-        if (
-            self.background_task is not None
-            and self.background_task is not asyncio.current_task()
-        ):
-            self.background_task.cancel()
+    async def close(self, *, discard_unsent: bool = False) -> None:
+        """Close the connection.
+
+        With `discard_unsent`, data not sent yet is dropped rather than flushed,
+        so closing never waits for a peer that has stopped reading.
+        """
+        unsent = bool(self.send_queue)
+        self.send_queue.clear()
+        self.queued_bytes = 0
+        # don't cancel the task that is closing its own connection
+        current = asyncio.current_task()
+        for task in (self.background_task, self.send_task):
+            if task is not None and task is not current:
+                task.cancel()
         if self.writer.is_closing():
             return
-        self.writer.close()
+        if discard_unsent and (unsent or self.writer.transport.get_write_buffer_size() > 0):
+            self.writer.transport.abort()  # close() would first wait to flush it
+        else:
+            self.writer.close()
         try:
             await self.writer.wait_closed()
         except ConnectionError:
@@ -73,7 +120,13 @@ class BaseLayerNode:
     IP/port pairs and can establish TCP connections to upstream instances,
     tracking both in separate connection lists. Data received on any
     connection is relayed onward per the base layer's routing rule.
+
+    Each connection has its own send queue, so a slow peer can't hold up the
+    others; one that is too slow (see `send_timeout`, `send_queue_limit`) is dropped.
     """
+
+    send_timeout = DEFAULT_SEND_TIMEOUT
+    send_queue_limit = DEFAULT_SEND_QUEUE_LIMIT
 
     def __init__(self) -> None:
         self.listening_addresses: List[Address] = []
@@ -243,7 +296,7 @@ class BaseLayerNode:
                 await _maybe_await(error_callback(connection, error))
             finally:
                 # release the socket; otherwise the server's wait_closed() never returns
-                await connection.close()
+                await connection.close(discard_unsent=True)
 
     async def _default_upstream_receive_callback(
         self, source: Connection, data: bytes
@@ -278,12 +331,50 @@ class BaseLayerNode:
         )
 
     async def _relay_to(self, targets: List[Connection], data: bytes) -> None:
+        """Queue `data` on each target, without waiting for it to be sent.
+
+        Data too long to send goes to no target (logged, not a connection error).
+        """
+        try:
+            check_payload_length(len(data))
+        except PayloadTooLong as exc:
+            logger.error("Not sending: %s", exc)
+            return
         for target in targets:
-            try:
-                await target.send(data)
-            except OSError as exc:
+            if target.queued_bytes + len(data) > self.send_queue_limit:
+                error = ConnectionTooSlow(
+                    f"its send queue would hold over {self.send_queue_limit} bytes"
+                )
                 from_upstream = target in self.upstream_connections
-                await self._handle_connection_error(target, from_upstream, exc)
+                await self._handle_connection_error(target, from_upstream, error)
+                continue
+            target.send_queue.append(data)
+            target.queued_bytes += len(data)
+            if target.send_task is None or target.send_task.done():
+                target.send_task = asyncio.ensure_future(self._send_loop(target))
+
+    async def _send_loop(self, connection: Connection) -> None:
+        """Send `connection`'s queue in order; ends once the queue is empty."""
+        while connection.send_queue:
+            data = connection.send_queue[0]
+            try:
+                await asyncio.wait_for(connection.send(data), self.send_timeout)
+            except asyncio.TimeoutError:
+                error: BaseException = ConnectionTooSlow(
+                    f"data not taken within {self.send_timeout} seconds"
+                )
+            except OSError as exc:
+                error = exc
+            else:
+                if connection.writer.is_closing():
+                    # closed meanwhile (on Python 3.8, wait_for can swallow that cancellation)
+                    return
+                connection.send_queue.popleft()
+                connection.queued_bytes -= len(data)
+                continue
+            from_upstream = connection in self.upstream_connections
+            await self._handle_connection_error(connection, from_upstream, error)
+            return
 
     async def close(self) -> None:
         """Stop accepting connections and close all tracked connections."""
@@ -293,7 +384,7 @@ class BaseLayerNode:
         # close connections before wait_closed(), which (Python 3.12.1+) waits
         # for every accepted connection to be closed
         for connection in (*self.upstream_connections, *self.downstream_connections):
-            await connection.close()
+            await connection.close(discard_unsent=True)  # doesn't wait for slow peers
         self.upstream_connections.clear()
         self.downstream_connections.clear()
 
