@@ -14,7 +14,7 @@ from software_bus.base_layer import (
     ReceivedTooLong,
 )
 
-from helpers import accept_one_peer_connection
+from helpers import accept_one_peer_connection, wait_until
 
 
 def test_client_instantiation_defaults():
@@ -508,3 +508,52 @@ async def test_client_failing_connection_error_callback_stays_out_of_the_receive
     finally:
         await client.close()
         await hub.close()
+
+
+@pytest.mark.asyncio
+async def test_client_close_does_not_hang_on_a_node_that_stopped_reading():
+    server, connected = await accept_one_peer_connection()  # never reads
+    client = BaseLayerClient()
+    client.send_timeout = 60  # so the sends below block instead of failing
+    peer = None
+    try:
+        await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+        peer = await asyncio.wait_for(connected, timeout=1)
+
+        async def flood():
+            while True:
+                await client.send(b"x" * (1024 * 1024))
+
+        sender = asyncio.ensure_future(flood())
+        await wait_until(lambda: client.connection.writer.transport.get_write_buffer_size() > 0)
+        await asyncio.sleep(0.2)  # stuck: the socket buffers are full
+        sender.cancel()
+        client.send_timeout = 0.3  # how long close() may wait for the rest to be taken
+
+        await asyncio.wait_for(client.close(), timeout=2)
+        assert client.connection is None
+    finally:
+        await client.close()
+        if peer is not None:
+            peer.writer.transport.abort()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_client_close_still_delivers_what_was_sent_just_before():
+    server, connected = await accept_one_peer_connection()
+    client = BaseLayerClient()
+    try:
+        await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+        peer = await asyncio.wait_for(connected, timeout=1)
+        for i in range(20):
+            await client.send(b"message %d" % i)
+        await client.close()  # straight away: these must not be dropped
+
+        for i in range(20):
+            assert await asyncio.wait_for(peer.receive(), timeout=1) == b"message %d" % i
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()

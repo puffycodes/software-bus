@@ -152,6 +152,8 @@ Functionalities
     - If the connection error callback fails, follow Callbacks: the connection is still forgotten and closed, and a failure to send is still reported to the caller of Send as that failure.
     - Closing the client itself is not an error, and does not call the connection error callback.
 - **Close** Close the connection, if any. The client is then no longer connected.
+    - Data already sent is still delivered: Close waits for the node to take it, but at most the send timeout. Whatever the node has not taken by then is discarded, so Close never hangs on a node that has stopped reading.
+        - It does not discard at once, as the node's Close does: a client often sends its last message just before closing, and that message must still arrive.
 
 ## bl_server Script
 

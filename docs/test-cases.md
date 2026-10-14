@@ -1,6 +1,6 @@
 # Test Cases
 
-All 428 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 430 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -67,7 +67,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Closing one connection on purpose removes it without calling an error callback; its peer sees it drop, and the other connections keep relaying.
   - Closing a connection again, or one the node doesn't have, does nothing.
 
-## Base layer client (`test_client.py`, 23 cases)
+## Base layer client (`test_client.py`, 25 cases)
 - **Connecting**
   - A new client isn't connected and has no receive callback.
   - The client's default address to connect to is the same as the node's default listening address.
@@ -89,6 +89,8 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - The default connection error callback logs a message.
   - Closing the client does not call the connection error callback.
   - Closing a client that never connected, or closing it twice, does no harm.
+  - Closing a client whose node has stopped reading doesn't hang: it gives up on the unsent data after the send timeout.
+  - Messages sent just before closing still arrive.
   - A failed send is reported to the connection error callback and also raised to the caller.
   - A send the node doesn't take within the send timeout fails: it's reported to the connection error callback and raised.
   - A message announcing more than 16 MiB loses the connection, without waiting for the payload.

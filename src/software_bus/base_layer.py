@@ -81,11 +81,15 @@ class Connection:
             )
         return await self.reader.readexactly(length)
 
-    async def close(self, *, discard_unsent: bool = False) -> None:
+    async def close(
+        self, *, discard_unsent: bool = False, flush_timeout: Optional[float] = None
+    ) -> None:
         """Close the connection.
 
         With `discard_unsent`, data not sent yet is dropped rather than flushed,
-        so closing never waits for a peer that has stopped reading.
+        so closing never waits for a peer that has stopped reading. Otherwise it
+        is flushed first, for at most `flush_timeout` seconds if given; what the
+        peer hasn't taken by then is dropped.
         """
         unsent = bool(self.send_queue)
         self.send_queue.clear()
@@ -102,7 +106,14 @@ class Connection:
         else:
             self.writer.close()
         try:
-            await self.writer.wait_closed()
+            if flush_timeout is None:
+                await self.writer.wait_closed()
+                return
+            try:
+                await asyncio.wait_for(asyncio.shield(self.writer.wait_closed()), flush_timeout)
+            except asyncio.TimeoutError:
+                self.writer.transport.abort()  # the peer stopped reading: give up on the rest
+                await self.writer.wait_closed()
         except ConnectionError:
             pass
 

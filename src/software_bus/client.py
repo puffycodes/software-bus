@@ -133,8 +133,14 @@ class BaseLayerClient:
             logger.exception("Receive callback failed")
 
     async def close(self) -> None:
+        """Close the connection, if any.
+
+        Data already sent is still delivered, but close() waits at most
+        `send_timeout` for the node to take it, then drops the rest, so it
+        never hangs on a node that has stopped reading.
+        """
         if self.connection is not None:
-            await self.connection.close()
+            await self.connection.close(flush_timeout=self.send_timeout)
             self.connection = None
 
     async def __aenter__(self) -> "BaseLayerClient":
