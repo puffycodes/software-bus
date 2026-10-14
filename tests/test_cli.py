@@ -24,7 +24,9 @@ from software_bus._cli import (
     parse_bool,
     parse_timeout,
     print_received,
+    reachable_from_other_machines,
     repeat,
+    run_server,
     run_until_connection_lost,
     run_until_interrupted,
 )
@@ -313,3 +315,47 @@ async def test_reconnect_stops_and_logs_on_a_lasting_refusal_after_the_first_att
     assert node.attempts == 2
     errors = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert len(errors) == 1 and "create a cycle" in errors[0].getMessage()
+
+
+# --- listening on an address other machines can reach ---------------------------------
+
+
+@pytest.mark.parametrize(
+    "host, reachable",
+    [
+        ("127.0.0.1", False),
+        ("127.5.5.5", False),
+        ("::1", False),
+        ("localhost", False),
+        ("0.0.0.0", True),
+        ("192.168.1.10", True),
+        ("bus-host.example", True),  # a host name isn't resolved: it counts as reachable
+    ],
+)
+def test_reachable_from_other_machines(host, reachable):
+    assert reachable_from_other_machines(host) is reachable
+
+
+class _ListeningNode:
+    """Pretends to listen, so the test opens no real socket on a public address."""
+
+    async def accept_connection(self, host, port):
+        pass
+
+    async def close(self):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_a_server_warns_only_about_listen_addresses_other_machines_can_reach(caplog):
+    with caplog.at_level(logging.WARNING, logger="software_bus._cli"):
+        task = asyncio.ensure_future(
+            run_server(_ListeningNode(), [], [("0.0.0.0", 8787), ("127.0.0.1", 8788)])
+        )
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "0.0.0.0:8787" in warnings[0] and "no authentication" in warnings[0]

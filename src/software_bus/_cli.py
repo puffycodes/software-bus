@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import ipaddress
 import logging
 import random
 import sys
@@ -176,6 +177,27 @@ async def _listen(node: Any, listens: List[Tuple[str, int]]) -> None:
             await node.accept_connection(host, port)
         except OSError as exc:
             raise ListenFailed(host, port, exc) from exc
+        if reachable_from_other_machines(host):
+            # allowed (e.g. a trusted private network), but the bus has no authentication
+            logger.warning(
+                "Listening on %s:%s, which other machines can reach: anyone who can "
+                "reach it can use the bus, which has no authentication",
+                host,
+                port,
+            )
+
+
+def reachable_from_other_machines(host: str) -> bool:
+    """False only for `localhost` and loopback IP addresses (Trust Model in base-layer.md).
+
+    Any other host name counts as reachable: telling would mean resolving it.
+    """
+    if host == "localhost":
+        return False
+    try:
+        return not ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return True
 
 
 async def _keep_connected(

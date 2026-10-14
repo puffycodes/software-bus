@@ -24,7 +24,10 @@
 ## Reserved Subjects
 
 - Subjects whose first sub-string is `_request` or `_reply` are reserved for request and reply. Publish and Subscribe users should not publish or subscribe to them directly.
-- The reservation is a convention only; nothing enforces it. A Publish and Subscribe subscriber whose subject has a wild card can still match reserved subjects, e.g. `*.x` matches `_request.x` and so receives every request sent to `x`.
+- The reservation is a convention only; nothing enforces it, since every client is trusted (see Trust Model in `base-layer.md`). For example:
+    - A Publish and Subscribe subscriber whose subject has a wild card can still match reserved subjects, e.g. `*.x` matches `_request.x` and so receives every request sent to `x`.
+    - Any client can publish to a reply subject it has seen in a request, and so send a reply that did not come from an acceptor.
+    - The **unique_id** keeps a reply subject from being guessed, so that one request's replies are not delivered to another by accident. It does not keep it secret from a client that receives the request.
 
 ## Messages
 

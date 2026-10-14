@@ -7,6 +7,20 @@
 - **Send queue limit** 64 MiB (four times the maximum payload length). The most data a node keeps waiting to be sent on one connection.
 - **Reconnect delay** How long a server waits before trying an upstream connection again. The first delay is 1 second, and each failed attempt in a row doubles it, up to 60 seconds. Each delay is multiplied by a random factor between 0.5 and 1, so that servers that lost the same upstream node do not all try again at the same moment. The delay goes back to 1 second once a connection succeeds.
 
+## Trust Model
+
+The bus assumes that every process that connects to it is trusted and cooperative: it follows the specs in `docs/design/`, and does not try to read what it should not, impersonate another node or client, or harm the bus.
+
+- The bus has no authentication, encryption or access control. Any process that can open a TCP connection to a node can take part in the bus, as a node or as a client, and everything it sends and receives travels in the clear.
+- It is therefore meant to run on a single machine (the default address, 127.0.0.1) or on a private network where every machine and user is trusted. Listening on an address other machines can reach makes the bus available to all of them (see the bl_server Script).
+- The rules in these specs protect against mistakes and failures — malformed messages, lost connections, peers that are too slow, messages over the maximum payload length, cycles — not against a peer that misbehaves on purpose.
+- Known non-goals. A peer that does not follow the specs can, among other things:
+    - send a Hello message with another node's Node ID, or answer Reachability Queries falsely, so that the cycle check refuses good connections or accepts one that closes a cycle (see Cycle Prevention in `publish-subscribe.md`);
+    - subscribe to any subject, including with wild cards, and so receive every publish, including the requests and replies of other clients (see Reserved Subjects in `request-reply.md`);
+    - publish to any subject, including another client's reply subject;
+    - use up a node's resources, e.g. by opening many connections or making many subscriptions. The limits in these specs bound the size of a message and of a connection's send queue, but not the number of connections or subscriptions.
+- Protecting against such peers (e.g. authenticating peers, encrypting connections, or limiting who may subscribe or publish to a subject) would need changes to the wire format (`data-format.md`), and is not part of this design.
+
 ## Base Layer Node Class
 
 Functionalities
@@ -122,6 +136,8 @@ Functionalities
     - parameter --upstream ip:port (default: None)
 - Accepting connection from zero or more downstream client.
     - parameter --listen ip:port (default: None)
+    - If an address it listens on can be reached from other machines (anything but a loopback address such as 127.0.0.1 or ::1, or the name localhost), log a warning that anyone who can reach that address can use the bus, which has no authentication (see Trust Model). Listen on it anyway: this is allowed, e.g. on a trusted private network.
+        - Any other host name counts as reachable: telling would mean resolving it.
 - Reconnect to upstream servers.
     - parameter --reconnect true|false (default: false)
     - With --reconnect false:

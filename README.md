@@ -22,6 +22,14 @@ wire formats for all the layers are specified in
 `bus_check` cycle-finding tool in
 [`docs/design/bus-check.md`](docs/design/bus-check.md).
 
+**The bus trusts every peer.** There's no authentication, encryption or
+access control: any process that can connect to a node can publish,
+subscribe (to anything, including other clients' requests and replies) or
+act as a node. Run it on one machine (the default, 127.0.0.1) or on a
+private network where every machine and user is trusted. See "Trust Model"
+in [`docs/design/base-layer.md`](docs/design/base-layer.md) for what this
+leaves out of scope.
+
 ## Install
 
 ```
@@ -465,7 +473,10 @@ python -m software_bus.bl_server --upstream 10.0.0.1:8787 --listen 127.0.0.1:878
 ```
 
 `--upstream` and `--listen` may each be repeated to connect to, or listen
-on, multiple addresses.
+on, multiple addresses. Listening on an address other machines can reach
+(anything but `localhost` or a loopback address such as 127.0.0.1) logs a
+warning, since the bus has no authentication, but is allowed. The same goes
+for `ps_server`.
 
 If an upstream server can't be reached, or a `--listen` address can't be
 used (e.g. it's already in use), `bl_server` prints

@@ -12,6 +12,7 @@
 - **Pending connection** On a node, a connection that this node established (to an upstream node) and has not yet accepted, because the cycle check for it has not finished. Only the node that establishes a connection sees it as pending; the node that accepts it treats it like any other connection from the start.
 - **Active connection** Any connection that is not pending. Unless stated otherwise, "connection" in the rules of this document means an active connection: pending connections are left out of every set of connections that messages are sent to.
 - **Check timeout** 5 seconds.
+- **Trust** Every node and client on the bus is trusted (see Trust Model in `base-layer.md`). In particular, Cycle Prevention relies on every node sending its own Node ID in Hello and answering Reachability Queries truthfully; it keeps cooperating nodes from forming a cycle by mistake, not a misbehaving node from forming one on purpose.
 
 ## Messages
 
@@ -206,6 +207,7 @@ A node that is checking therefore answers every query it receives with unknown:
     - parameter --upstream ip:port (default: None)
 - Accepting connection from zero or more downstream client.
     - parameter --listen ip:port (default: None)
+    - Warn about an address that other machines can reach, as bl_server does (see `base-layer.md`).
 - Reconnect to upstream servers.
     - parameter --reconnect true|false (default: false)
     - It follows the same rules as bl_server (see `base-layer.md`), with these additions for the cycle check (see Cycle Prevention):

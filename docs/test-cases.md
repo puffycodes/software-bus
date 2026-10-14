@@ -1,6 +1,6 @@
 # Test Cases
 
-All 397 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 405 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -228,7 +228,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Accepting with the same subject and callback twice still calls it once per request. A failing request callback is logged and doesn't stop another acceptor on the same client. Stopping one callback leaves the others accepting, stopping it again does nothing, and stopping the last one removes the subscription.
   - An acceptor logs and ignores bad requests (3 cases): a malformed Request Message, one whose reply subject isn't a reply subject, and one whose reply subject belongs to a different request subject.
 
-## Shared script helpers (`test_cli.py`, 44 cases)
+## Shared script helpers (`test_cli.py`, 52 cases)
 - **Options and parsing**
   - `true`/`false` options accept any capitalisation (3 cases).
   - Other values like `yes`, `1` or an empty string are rejected (3 cases).
@@ -251,6 +251,9 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - The reconnect delay doubles from 1 s after each failed attempt up to 60 s, each shortened by a random factor between 0.5 and 1, and starts again at 1 s after a connection. A refusal that could go away counts as a failed attempt.
   - A lasting cycle check refusal on the first attempt raises "cannot connect", without trying again.
   - A lasting refusal on a later attempt is logged as an error and ends the attempts for that upstream.
+- **Listening on an address other machines can reach**
+  - Only `localhost` and loopback addresses (`127.0.0.1`, another `127.x.x.x`, `::1`) count as unreachable from other machines; `0.0.0.0`, any other IP address and any other host name count as reachable (7 cases).
+  - A server logs one warning, saying the bus has no authentication, for a listen address other machines can reach, and none for a loopback one.
 - **Exiting**
   - A script's coroutine is run to completion.
   - Ctrl-C exits quietly.
