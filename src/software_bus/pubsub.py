@@ -789,7 +789,8 @@ class PubSubClient:
 
         A callback subscribed more than once needs as many unsubscribes. The
         upstream node is only told about the unsubscription once no callback
-        remains registered against `subject`.
+        remains registered against `subject`. If that can't be sent (e.g. not
+        connected), the callback is still removed and the error is raised.
         """
         if self._remove_registration(subject, callback):
             await self._client.send(encode_message(SubscriptionMessage(subject, subscribe=False)))
@@ -816,7 +817,9 @@ class PubSubClient:
 
         Raises ValueError, sending nothing, if `subject` contains a wild card
         or is too long. The node never sends a publish back to its sender, so
-        this client's own matching subscription callbacks are called here directly.
+        this client's own matching subscription callbacks are called here directly,
+        once the publish has been sent. If it can't be sent (e.g. not connected),
+        the error is raised and none of them is called.
         """
         check_publish_subject(subject)
         message = PublishMessage(subject, payload)

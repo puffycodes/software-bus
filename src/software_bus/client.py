@@ -52,8 +52,11 @@ class BaseLayerClient:
         return connection
 
     async def send(self, data: bytes) -> None:
-        """Send `data`; a send failure is reported to the connection error
-        callback and then re-raised to the caller."""
+        """Send `data`; raises RuntimeError, sending nothing, if not connected.
+
+        A send failure is reported to the connection error callback and then
+        re-raised to the caller.
+        """
         connection = self.connection
         if connection is None:
             raise RuntimeError("not connected")

@@ -36,7 +36,7 @@ How this project is developed and tested. For the commands to install and run th
 ### Documentation upkeep
 - `CLAUDE.md` and `README.md` are updated along with each feature.
 - No linter or formatter is configured.
-- Features are built up in steps: base layer → scripts → pub/sub → error handling → wildcard subjects → cycle prevention → `bus_check`.
+- Features are built up in steps: base layer → scripts → pub/sub → error handling → wildcard subjects → cycle prevention → `bus_check` → request/reply.
 
 ## Testing approach
 

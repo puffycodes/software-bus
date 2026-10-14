@@ -189,6 +189,12 @@ class RequestReplyClient:
         self._requests: Dict[str, _PendingRequest] = {}
 
     async def connect(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> Connection:
+        """Connect to a node, as `PubSubClient.connect` does.
+
+        Acceptors belong to the client, not to a connection: their subscriptions
+        are sent again here, so they keep accepting requests after reconnecting.
+        Pending requests don't carry over: `close` and a lost connection end them.
+        """
         return await self._client.connect(host, port)
 
     def register_connection_error_callback(self, callback: ConnectionErrorCallback) -> None:

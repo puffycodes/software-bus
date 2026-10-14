@@ -74,7 +74,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A failed send is reported to the connection error callback and also raised to the caller.
 
 ## Publish/subscribe (`test_pubsub.py`, 66 cases)
-- **Wire format (21 cases)**
+- **Wire format (20 cases)**
   - Subscription and publish messages have exactly the byte layout in `data-format.md`, including a subject's length counted in UTF-8 bytes.
   - Bytes after a subscription's subject are ignored.
   - A subscription message survives encoding and decoding unchanged.
@@ -90,11 +90,6 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - If sending a subscription fails, the error is raised (and reported as a connection error), and only that subject's callback is removed; other subjects stay subscribed.
   - Unsubscribing while not connected raises an error, but the callback is still removed, so the next connect won't subscribe the subject again.
   - Publishing while not connected raises an error and calls none of the client's own callbacks.
-- **Reconnecting**
-  - After closing, connecting again sends the new node one subscription for every subject still subscribed (wildcards too), and none for a subject already unsubscribed.
-  - After its node goes away, a subscriber that connects to another node gets publishes there again without subscribing again.
-  - A subject unsubscribed while `connect` is re-sending subscriptions is not subscribed again after its unsubscribe.
-  - If re-sending a subscription fails, `connect` raises, the failed connection is dropped, and the subscriptions stay registered: the next `connect` sends them.
   - Publishing to a subject with a wild card part (`a.*`, or just `*`) or one that's too long raises an error, sends nothing to the node and calls none of the client's own callbacks (3 cases).
   - A `*` inside a part (`a.b*`) is not a wild card, so publishing to it is allowed.
   - Only the first callback on a subject sends a subscription to the node.
@@ -104,6 +99,11 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Every callback on the same client and subject is called for a publish.
   - A subscription callback can be an async function.
   - If one subscription callback fails, the others still get the publish. This includes the client's own publishes, and the failure isn't raised to the publisher.
+- **Reconnecting**
+  - After closing, connecting again sends the new node one subscription for every subject still subscribed (wildcards too), and none for a subject already unsubscribed.
+  - After its node goes away, a subscriber that connects to another node gets publishes there again without subscribing again.
+  - A subject unsubscribed while `connect` is re-sending subscriptions is not subscribed again after its unsubscribe.
+  - If re-sending a subscription fails, `connect` raises, the failed connection is dropped, and the subscriptions stay registered: the next `connect` sends them.
 - **Delivery**
   - A publish reaches only clients subscribed to its subject.
   - A publish reaches a wildcard subscription that matches it.
