@@ -241,8 +241,7 @@ class RequestReplyClient:
         try:
             await self._client.subscribe(subject, on_request)
         except BaseException:
-            del self._acceptors[key]
-            await self._unsubscribe_quietly(subject, on_request)
+            del self._acceptors[key]  # subscribe has removed its callback itself
             raise
 
     async def stop_accept_request(

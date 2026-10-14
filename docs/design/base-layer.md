@@ -104,6 +104,13 @@ Functionalities
     - Afterwards the lists of IP/port and of connections are empty.
     - Closing the node itself is not an error, and does not call the connection error callbacks. (The peers at the other end of the connections do see them dropped.)
     - A closed node is not meant to be used again: to accept or establish connections after Close, create a new instance. What happens if a closed node is used again is not defined. (Clients differ: a client can Connect again after Close, see Base Layer Client Class.)
+- **Close Connection** Close one upstream or downstream connection on purpose, keeping the node and its other connections.
+    - Parameters:
+        - The connection to close: one of the node's upstream or downstream connections.
+    - Remove the connection from its list, then close it. Data not sent yet on it is discarded, as in Close.
+    - Closing a connection on purpose is not an error, and does not call the connection error callbacks. (The peer at the other end does see it dropped.)
+    - If the connection is not one of the node's connections (e.g. it was closed or failed already), do nothing.
+    - A connection must be closed through Close Connection or Close, not by closing the connection itself. The node would not know it is closed: it would keep it in its lists, as if it were still open, until a send to it failed, and then report it as a connection error.
 - **Internal Data** Keep the following lists:
     - a list of IP/port that it is accepting connections on.
     - a list of upstream connections.

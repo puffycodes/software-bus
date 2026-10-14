@@ -81,7 +81,7 @@ The wire formats are defined in "Request and Reply Wire Format" in `data-format.
         - If the same **received request callback** is already registered for the same **request subject**, do nothing: the callback is called once per request, not once per registration.
         - Subscribe to the **Derived Request Subject**, with a new subscription callback made for this **received request callback**.
             - Remember the subscription callback under the pair (**request subject**, **received request callback**), so that **Stop Accept Request** can unsubscribe that exact function.
-            - If subscribing fails (e.g. the client is not connected), forget the pair again, remove the subscription locally even if the upstream node cannot be told, and report the error to the caller. Nothing is left registered.
+            - If subscribing fails (e.g. the client is not connected), forget the pair again and report the error to the caller. Subscribe has already removed the subscription callback itself (see Subscribe in `publish-subscribe.md`), so nothing is left registered.
             - The subscription callback will be a function that does the following:
                 - Decode the payload given to the subscription callback as a **Request Message**, to get the **reply subject** and the **request payload**.
                     - If the payload is a malformed Request Message (see `data-format.md`), log it and ignore it. The **received request callback** is not called.

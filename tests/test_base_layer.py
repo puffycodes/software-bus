@@ -1015,3 +1015,58 @@ async def test_failing_connection_error_callback_for_a_full_send_queue_is_not_ra
         await hub.close()
         if peer is not None:
             await peer.close()
+
+
+# --- closing one connection on purpose --------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_close_connection_drops_it_without_an_error_callback_and_the_others_keep_relaying():
+    hub = BaseLayerNode()
+    errors = []
+    hub.register_downstream_connection_error_callback(lambda connection, error: errors.append(error))
+    peers = []
+    try:
+        server = await hub.accept_connection(port=0)
+        hub_port = server.sockets[0].getsockname()[1]
+        for _ in range(3):
+            peers.append(await _open_peer_connection("127.0.0.1", hub_port))
+        await wait_until(lambda: len(hub.downstream_connections) == 3)
+        by_address = {peer.writer.get_extra_info("sockname"): peer for peer in peers}
+        closed = hub.downstream_connections[0]
+        closed_peer = by_address[closed.address]
+        sender, receiver = [peer for peer in peers if peer is not closed_peer]
+
+        await hub.close_connection(closed)
+
+        assert closed not in hub.downstream_connections and len(hub.downstream_connections) == 2
+        with pytest.raises((asyncio.IncompleteReadError, ConnectionError)):
+            await asyncio.wait_for(closed_peer.receive(), timeout=1)  # the peer sees it drop
+        await sender.send(b"still relayed")
+        assert await asyncio.wait_for(receiver.receive(), timeout=1) == b"still relayed"
+        await asyncio.sleep(0.05)
+        assert errors == []  # closing on purpose is not an error
+    finally:
+        await hub.close()
+        for peer in peers:
+            await peer.close()
+
+
+@pytest.mark.asyncio
+async def test_close_connection_twice_or_for_a_connection_it_does_not_have_does_nothing():
+    hub = BaseLayerNode()
+    peer = None
+    try:
+        server = await hub.accept_connection(port=0)
+        peer = await _open_peer_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        await wait_until(lambda: len(hub.downstream_connections) == 1)
+        (connection,) = hub.downstream_connections
+
+        await hub.close_connection(connection)
+        await hub.close_connection(connection)  # already closed
+        await hub.close_connection(peer)  # not one of the hub's connections
+        assert hub.downstream_connections == [] and hub.upstream_connections == []
+    finally:
+        await hub.close()
+        if peer is not None:
+            await peer.close()

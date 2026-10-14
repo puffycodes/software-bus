@@ -433,6 +433,25 @@ class PubSubNode:
         self._draining.clear()
         self._queries.clear()
 
+    async def close_connection(self, connection: Connection) -> None:
+        """Close one connection on purpose, keeping the node and its other connections.
+
+        No connection error callback is called, but unlike `close()` the rest of
+        the tree keeps running: the connection is unsubscribed from every subject
+        it held, and its cycle-prevention state is forgotten (a check still
+        running for it ends at once). Does nothing if it isn't one of this node's.
+        """
+        if connection in self.upstream_connections:
+            subscriptions = self._upstream_subscriptions
+        elif connection in self.downstream_connections:
+            subscriptions = self._downstream_subscriptions
+        else:
+            return
+        await self._base.close_connection(connection)
+        # as for a failed connection: queries waiting on it count it as "not found"
+        self._forget_connection(connection)
+        await self._drop_connection(connection, subscriptions)
+
     # --- connection lifecycle ---------------------------------------------
 
     async def _on_upstream_new_connection(self, connection: Connection) -> None:

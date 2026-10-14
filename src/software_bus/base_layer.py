@@ -394,6 +394,20 @@ class BaseLayerNode:
             await self._handle_connection_error(connection, from_upstream, error)
             return
 
+    async def close_connection(self, connection: Connection) -> None:
+        """Close one connection on purpose, keeping the node and its other connections.
+
+        Not an error, so no connection error callback is called. Does nothing if
+        `connection` isn't one of this node's (e.g. it failed already). Close a
+        node's connections only through here or `close()`: closing a Connection
+        itself would leave it in this node's lists.
+        """
+        for connections in (self.upstream_connections, self.downstream_connections):
+            if connection in connections:
+                connections.remove(connection)
+                await connection.close(discard_unsent=True)  # cancels its relay loop: not reported
+                return
+
     async def close(self) -> None:
         """Stop accepting connections and close all tracked connections."""
         for server in self._servers.values():

@@ -90,6 +90,10 @@
     - A cycle check still running ends as if its connection had failed, so Establish Connection reports an error to its caller straight away.
     - Closing the node is not an error on its connections, so it sends no unsubscribe messages (see Exception Handling).
     - As for the Base Layer Node, a closed node is not meant to be used again (see Close in `base-layer.md`).
+- **Close Connection** Close one connection on purpose, as the Base Layer Node does (see `base-layer.md`), keeping the node and its other connections.
+    - The connection error callbacks are not called. But unlike Close, the rest of the tree keeps running, so it must learn that the subscribers behind this connection are gone: remove the connection from every subject, applying the unsubscribe rules as if it had sent an unsubscribe message, as for a connection error (see Exception Handling).
+    - Its cycle-prevention state is forgotten too, straight away: it is no longer a node connection, and a Reachability Query waiting for its reply counts it as not found. If it is a pending connection, its cycle check ends straight away, and Establish Connection reports an error to its caller.
+    - If the connection is not one of the node's connections, do nothing.
 
 ## Cycle Prevention
 

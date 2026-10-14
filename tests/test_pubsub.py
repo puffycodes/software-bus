@@ -22,6 +22,7 @@ from helpers import (
     establish_to_raw_peer,
     expect_hello,
     open_peer_connection,
+    wait_until,
 )
 
 
@@ -1585,3 +1586,25 @@ async def test_a_connection_that_subscribes_twice_is_tagged_once():
         for peer in (subscriber, other):
             if peer is not None:
                 await peer.close()
+
+
+@pytest.mark.asyncio
+async def test_closing_a_subscribed_downstream_connection_unsubscribes_it_upstream():
+    root, root_port = await _start_node()
+    child, child_port = await _start_node()
+    client = PubSubClient()
+    try:
+        await asyncio.wait_for(child.establish_connection("127.0.0.1", root_port), timeout=2)
+        await client.connect("127.0.0.1", child_port)
+        await client.subscribe("a.b", lambda matched, actual, payload: None)
+        await wait_until(lambda: "a.b" in root._downstream_subscriptions)
+
+        (client_connection,) = child.downstream_connections
+        await child.close_connection(client_connection)
+
+        await wait_until(lambda: "a.b" not in root._downstream_subscriptions)
+        assert child._downstream_subscriptions == {} and child.downstream_connections == []
+    finally:
+        await client.close()
+        await child.close()
+        await root.close()

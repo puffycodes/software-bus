@@ -1,6 +1,6 @@
 # Test Cases
 
-All 423 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 428 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -17,7 +17,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Only a whole `*` part is a wildcard: `ab` doesn't match `a*`, which only matches `a*` itself.
   - Empty parts count like any other part: `a..b` matches `a.*.b` and `a..b`, `a.b` doesn't match `a..b`, `a.` matches `a.*`, and `a` doesn't match `a.*`.
 
-## Base layer node (`test_base_layer.py`, 40 cases)
+## Base layer node (`test_base_layer.py`, 42 cases)
 - **Setup and listening**
   - A new node isn't listening and has no connections.
   - Listening with no arguments uses the default address, 127.0.0.1:8787.
@@ -64,6 +64,8 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Closing a node empties its lists of connections and listening addresses.
   - Closing a node doesn't report its own connections as errors, but the peer at the other end does see its connection dropped.
   - Closing a node twice, or closing one that never listened, does no harm.
+  - Closing one connection on purpose removes it without calling an error callback; its peer sees it drop, and the other connections keep relaying.
+  - Closing a connection again, or one the node doesn't have, does nothing.
 
 ## Base layer client (`test_client.py`, 23 cases)
 - **Connecting**
@@ -93,7 +95,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A failing connection error callback is logged, and a failed send still raises its own error, not the callback's.
   - A failing connection error callback after the node goes away is logged, and nothing escapes the receive loop.
 
-## Publish/subscribe (`test_pubsub.py`, 70 cases)
+## Publish/subscribe (`test_pubsub.py`, 71 cases)
 - **Wire format (20 cases)**
   - Subscription and publish messages have exactly the byte layout in `data-format.md`, including a subject's length counted in UTF-8 bytes.
   - Bytes after a subscription's subject are ignored.
@@ -151,6 +153,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A downstream connection dropping counts as unsubscribing from all its subjects, and this is passed on.
   - The same applies when an upstream connection drops.
   - Closing a node sends no unsubscribes (its connections just end) and forgets every subscription.
+  - Closing one subscribed downstream connection on purpose unsubscribes it, and the unsubscribe reaches the node upstream.
 - **Robustness**
   - A node logs and ignores a malformed message, and keeps the connection.
   - A client logs and ignores a malformed message, and keeps receiving.
@@ -159,7 +162,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A client logs and ignores reachability queries and replies (not as malformed), replies nothing, and keeps receiving.
   - A client's connection error callback is called when its node goes away.
 
-## Cycle prevention (`test_cycle_prevention.py`, 55 cases)
+## Cycle prevention (`test_cycle_prevention.py`, 57 cases)
 - **Wire format (15 cases)**
   - Hello, query and reply messages (all three results) survive encoding and decoding unchanged (5 cases).
   - Their byte layout is exactly as specified.
@@ -187,6 +190,8 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Nothing is sent on a connection still being checked until it's accepted.
   - Once accepted, subscriptions flow both ways.
   - Closing a node while a check is still waiting for Hello ends the check straight away with an error.
+  - Closing a pending connection on purpose ends its check straight away with an error.
+  - Closing a node connection on purpose forgets it at once, so it is no longer asked in later checks, and a new link is then accepted.
   - The peer dropping during the check ends it straight away with an error.
   - It also ends straight away when the peer drops while the check's query is still waiting for a silent node's reply (the node then stops checking: its query is dropped and the lock is free), during the delay before a retry, or while the check is waiting for an earlier check to finish (which carries on and is accepted) (3 cases).
   - A step of the check started for a connection that is already lost is closed rather than left unawaited, so Python doesn't warn about it.

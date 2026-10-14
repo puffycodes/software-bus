@@ -395,6 +395,52 @@ async def test_messages_up_to_the_held_messages_limit_are_kept_and_processed_onc
 
 
 @pytest.mark.asyncio
+async def test_closing_a_node_connection_on_purpose_forgets_it_at_once_for_later_cycle_checks():
+    node = PubSubNode()
+    first, first_port = await _start_node()
+    second, second_port = await _start_node()
+    try:
+        connection = await asyncio.wait_for(
+            node.establish_connection("127.0.0.1", first_port), timeout=2
+        )
+        await node.close_connection(connection)
+        # forgotten at once (closing the Connection itself would leave it listed, and still
+        # a node connection, until the next send to it failed)
+        assert node.upstream_connections == [] and node._active_node_connections() == []
+        assert node._peer_node_ids == {}
+        await wait_until(lambda: first.downstream_connections == [])
+
+        await asyncio.wait_for(node.establish_connection("127.0.0.1", second_port), timeout=2)
+        assert len(node._active_node_connections()) == 1
+    finally:
+        await node.close()
+        await first.close()
+        await second.close()
+
+
+@pytest.mark.asyncio
+async def test_closing_a_pending_connection_on_purpose_ends_its_check_at_once():
+    server, connected = await accept_one_peer_connection()
+    node = PubSubNode()
+    try:
+        task = asyncio.ensure_future(
+            node.establish_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        )
+        peer = await asyncio.wait_for(connected, timeout=1)
+        await expect_hello(peer)  # never answered: the check waits for a Hello
+        (pending,) = node.upstream_connections
+
+        await node.close_connection(pending)
+        with pytest.raises(ConnectionError):
+            await asyncio.wait_for(task, timeout=1)  # well before check_timeout
+        assert node._pending == {} and node.upstream_connections == []
+    finally:
+        await node.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
 async def test_closing_the_node_ends_a_check_still_waiting_for_hello():
     server, connected = await accept_one_peer_connection()
     node = PubSubNode()

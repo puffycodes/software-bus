@@ -122,7 +122,12 @@ the exception — e.g. `asyncio.IncompleteReadError` when the peer closed the
 connection. Once the callback returns, the connection is closed, so don't
 keep it around to send on. Closing the node yourself with `close()` doesn't
 call these callbacks (the peers at the other end do see their connections
-drop). The default callbacks just log the event; override them with `register_upstream_connection_error_callback`
+drop), and neither does `close_connection(connection)`, which closes one
+connection on purpose and keeps the rest. Close a node's connections only
+through those two: calling `close()` on a `Connection` itself leaves it in
+the node's lists until a send to it fails. On a `PubSubNode`,
+`close_connection` also unsubscribes the connection from its subjects, so
+the rest of the tree stops routing to it. The default callbacks just log the event; override them with `register_upstream_connection_error_callback`
 / `register_downstream_connection_error_callback` to react instead:
 
 ```python
