@@ -424,4 +424,4 @@ Checks that a node connection whose other end belongs to a process the operating
   - The report includes `warning: 1 node connection(s) go to a process the operating system hides; the check may be incomplete (try again as administrator/root)`. The node's own end of the connection is visible, but the subscriber's end belongs to root, so it is hidden.
   - `No cycles found.`, and exit status 0.
 - **Clean up:** stop the subscriber and the server with Ctrl-C.
-- **Last run:** 2026-09-30, passed.
+- **Last run:** 2026-10-15, passed.
