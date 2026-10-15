@@ -57,7 +57,7 @@ How this project is developed and tested. For the commands to install and run th
 ### Timing
 - Every wait is bounded with `asyncio.wait_for(..., timeout=...)`.
 - To check that something does *not* arrive, a test waits a short time (0.1–0.2 s) and expects a timeout.
-- Protocol timings are class attributes (`check_timeout`, `check_retry_delay`, `max_check_attempts`), and tests shrink them on each instance.
+- Protocol timings are class attributes (`check_timeout`, `check_retry_delay`, `max_check_attempts`), and tests shrink them on each instance. `test_defaults.py` pins every default limit and timing to its spec value, so shrinking them can't hide a wrong default.
 
 ### Where fakes are used
 - Fakes are used only where real resources are impractical. `bus_check` logic is pure and tested with fake `TcpConnection`s, and `collect()` is tested by putting a fake `psutil` into `sys.modules`.

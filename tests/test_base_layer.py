@@ -4,7 +4,12 @@ import logging
 import pytest
 
 from software_bus import BaseLayerNode
-from software_bus.base_layer import MAX_PAYLOAD_LENGTH, ConnectionTooSlow, ReceivedTooLong
+from software_bus.base_layer import (
+    MAX_PAYLOAD_LENGTH,
+    Connection,
+    ConnectionTooSlow,
+    ReceivedTooLong,
+)
 
 from helpers import accept_one_peer_connection, free_port, open_peer_connection, wait_until
 
@@ -18,6 +23,15 @@ def test_instantiation_defaults():
     assert layer.upstream_connections == []
     assert layer.downstream_connections == []
     assert not layer.is_accepting()
+
+
+def test_a_connection_equals_only_itself_and_can_key_a_dict():
+    # the nodes key their per-connection state by the connection itself
+    reader, writer = object(), object()
+    first, second = Connection(reader, writer), Connection(reader, writer)
+    assert first == first and first != second  # same fields, still different connections
+    assert {first: "a", second: "b"}[first] == "a"
+    assert len({first, second}) == 2
 
 
 @pytest.mark.asyncio

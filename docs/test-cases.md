@@ -1,6 +1,6 @@
 # Test Cases
 
-All 439 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 454 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -18,9 +18,10 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Empty parts count like any other part: `a..b` matches `a.*.b` and `a..b`, `a.b` doesn't match `a..b`, `a.` matches `a.*`, and `a` doesn't match `a.*`.
 - **Spotting a wild card (6 cases):** a subject has a wild card only if a whole part is `*`: `a.*`, `*` and `a.*.c` do; `a.b`, `a*.b` and an empty subject don't.
 
-## Base layer node (`test_base_layer.py`, 42 cases)
+## Base layer node (`test_base_layer.py`, 43 cases)
 - **Setup and listening**
   - A new node isn't listening and has no connections.
+  - A connection is equal only to itself, even to another with the same fields, and can be a dict key or set member: the nodes key their per-connection state by it.
   - Listening with no arguments uses the default address, 127.0.0.1:8787.
   - A node can listen on several addresses at once.
   - Asking to listen on an address it already listens on does nothing.
@@ -409,6 +410,13 @@ Some behaviour can't be tested automatically; those tests are described at the e
 - **With real `bl_server` processes**
   - Three servers in a tree have no cycle.
   - Three servers in a triangle have one cycle.
+
+## Defaults (`test_defaults.py`, 14 cases)
+- Each default limit and timing is the value its spec gives, since tests shrink or monkeypatch them and would not notice a wrong default (14 cases):
+  - `base-layer.md`: maximum payload length 16 MiB, send timeout 30 s for both node and client, client close timeout 5 s, send queue limit 64 MiB, reconnect delay from 1 s up to 60 s.
+  - `publish-subscribe.md`: check timeout 5 s, held messages limit 64 MiB, 5 check attempts, retry delay between 0.2 and 2 s.
+  - `data-format.md`: subjects up to 65535 bytes.
+  - `request-reply.md`: request timeout 300 s, unique ids of 32 characters.
 
 ## Manual tests
 

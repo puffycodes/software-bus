@@ -42,7 +42,7 @@
 ### Timing
 - Bound every wait with a timeout so a broken test fails instead of hanging.
 - To check that something does *not* happen, wait briefly and expect a timeout.
-- Expose timing constants as attributes that tests can shrink.
+- Expose timing constants as attributes that tests can shrink, and pin each default to its spec value in one table-driven test, so shrinking can't hide a wrong default.
 
 ### Coverage
 - Test each layer separately: core classes, shared helpers, and each script's `run()` function.
