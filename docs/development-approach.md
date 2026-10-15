@@ -16,7 +16,8 @@ How this project is developed and tested. For the commands to install and run th
 
 ### Shared internals instead of copies
 - Every failure goes through one place: `_handle_connection_error`.
-- Common helpers are reused rather than rewritten: `_start_connection`, `_peers_except`, `_maybe_await`, `_send_to`/`_relay_to`.
+- Common helpers are reused rather than rewritten: `_start_connection`, `_all_connections`/`_peers_except`, `_maybe_await`, `_send_to`/`_relay_to`, and `_encode_subject`/`_decode_subject` for the wire format.
+- Every user callback that raises is logged through `_call_logging_failure`, which each layer gives its own logger, so the log shows which layer the callback belongs to.
 - Everything the CLI scripts share lives in `_cli.py`. Each script is a thin argparse wrapper around a testable `run(...)` coroutine.
 - Script errors are subclasses of `ScriptError`, which a single wrapper turns into a one-line message and exit status 1. `bus_check` is the documented exception: it has its own exit codes.
 

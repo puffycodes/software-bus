@@ -703,7 +703,7 @@ src/software_bus/
     client.py       BaseLayerClient
     pubsub.py       PubSubNode, PubSubClient
     request_reply.py  RequestReplyClient
-    subject_matcher.py  SubjectMatcher, ExactStringMatcher, StringPatternMatcher
+    subject_matcher.py  SubjectMatcher, ExactStringMatcher, StringPatternMatcher, has_wildcard
     bl_server.py    bl_server CLI
     bl_client.py    bl_client CLI
     ps_server.py    ps_server CLI
