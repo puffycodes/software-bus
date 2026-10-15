@@ -480,12 +480,14 @@ async def test_client_failing_connection_error_callback_still_raises_the_send_er
             raise ConnectionResetError("simulated send failure")
 
         connection.send = failing_send
-        with caplog.at_level(logging.ERROR, logger="software_bus.base_layer"):
+        with caplog.at_level(logging.ERROR, logger="software_bus.client"):
             with pytest.raises(ConnectionResetError):  # the error of the send, not the callback
                 await client.send(b"data")
         assert client.connection is None
         assert connection.writer.is_closing()
         assert "Connection error callback failed" in caplog.text
+        # logged as the client's, not the base layer node's
+        assert any(r.name == "software_bus.client" for r in caplog.records)
     finally:
         await client.close()
         await hub.close()
@@ -499,7 +501,7 @@ async def test_client_failing_connection_error_callback_stays_out_of_the_receive
     try:
         server = await hub.accept_connection(port=0)
         connection = await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
-        with caplog.at_level(logging.ERROR, logger="software_bus.base_layer"):
+        with caplog.at_level(logging.ERROR, logger="software_bus.client"):
             await hub.close()  # the node goes away
             await asyncio.wait_for(asyncio.wait({connection.background_task}), timeout=1)
         assert client.connection is None

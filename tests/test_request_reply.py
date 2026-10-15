@@ -369,6 +369,31 @@ async def test_connection_error_ends_pending_requests_then_calls_the_callback():
 
 
 @pytest.mark.asyncio
+async def test_a_failing_connection_error_callback_is_logged_as_request_reply(caplog):
+    node, port = await start_node()
+    requester = await connected_client(port)
+    replies = []
+    try:
+        def failing_callback(connection, error):
+            raise RuntimeError("callback failed")
+
+        requester.register_connection_error_callback(failing_callback)
+        handle = await requester.send_request("a", b"", lambda *args: replies.append(args), timeout=0)
+        with caplog.at_level(logging.ERROR, logger="software_bus.request_reply"):
+            await node.close()
+            await asyncio.sleep(0.2)
+        # pending requests are still ended, and the failure is logged under this layer
+        assert replies == [(handle, b"", CONNECTION_LOST)]
+        assert any(
+            r.name == "software_bus.request_reply" and "Connection error callback failed" in r.getMessage()
+            for r in caplog.records
+        )
+    finally:
+        await requester.close()
+        await node.close()
+
+
+@pytest.mark.asyncio
 async def test_acceptor_keeps_accepting_after_the_client_reconnects():
     node, port = await start_node()
     replier = await connected_client(port)

@@ -114,7 +114,11 @@ class BaseLayerClient:
         try:
             # a failing callback mustn't replace the send error or escape the receive loop
             await _call_logging_failure(
-                "Connection error callback", self._connection_error_callback, connection, error
+                "Connection error callback",
+                self._connection_error_callback,
+                connection,
+                error,
+                log=logger,
             )
         finally:
             await connection.close(discard_unsent=True)

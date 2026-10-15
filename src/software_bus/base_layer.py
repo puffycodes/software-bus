@@ -136,13 +136,18 @@ async def _maybe_await(result: Any) -> Any:
     return result
 
 
-async def _call_logging_failure(what: str, callback: Callable[..., Any], *args: Any) -> None:
+async def _call_logging_failure(
+    what: str, callback: Callable[..., Any], *args: Any, log: logging.Logger = logger
+) -> None:
     """Call a sync or async callback; if it raises, log it and carry on as if it
-    had returned (Callbacks in docs/design/base-layer.md)."""
+    had returned (Callbacks in docs/design/base-layer.md).
+
+    `log` is the calling module's logger, so the log says which layer the callback belongs to.
+    """
     try:
         await _maybe_await(callback(*args))
     except Exception:
-        logger.exception("%s failed", what)
+        log.exception("%s failed", what)
 
 
 class BaseLayerNode:

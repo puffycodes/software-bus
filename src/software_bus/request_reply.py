@@ -24,6 +24,7 @@ from .base_layer import (
     DEFAULT_PORT,
     Connection,
     ConnectionErrorCallback,
+    _call_logging_failure,
     _maybe_await,
 )
 from .pubsub import (
@@ -347,10 +348,13 @@ class RequestReplyClient:
         self, connection: Connection, error: Optional[BaseException]
     ) -> None:
         await self._end_all_without_reply(ReplyStatus.CONNECTION_LOST)
-        try:
-            await _maybe_await(self._connection_error_callback(connection, error))
-        except Exception:
-            logger.exception("Connection error callback failed")
+        await _call_logging_failure(
+            "Connection error callback",
+            self._connection_error_callback,
+            connection,
+            error,
+            log=logger,
+        )
 
     async def _default_connection_error_callback(
         self, connection: Connection, error: Optional[BaseException]

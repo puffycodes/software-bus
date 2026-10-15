@@ -1,6 +1,6 @@
 # Test Cases
 
-All 438 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 439 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -95,7 +95,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A failed send is reported to the connection error callback and also raised to the caller.
   - A send the node doesn't take within the send timeout fails: it's reported to the connection error callback and raised.
   - A message announcing more than 16 MiB loses the connection, without waiting for the payload.
-  - A failing connection error callback is logged, and a failed send still raises its own error, not the callback's.
+  - A failing connection error callback is logged, as the client's rather than the base layer node's, and a failed send still raises its own error, not the callback's.
   - A failing connection error callback after the node goes away is logged, and nothing escapes the receive loop.
 
 ## Publish/subscribe (`test_pubsub.py`, 71 cases)
@@ -218,7 +218,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - A node that adds two links at once checks them one at a time.
   - Two nodes adding links at the same time can't close a cycle between them.
 
-## Request/reply (`test_request_reply.py`, 43 cases)
+## Request/reply (`test_request_reply.py`, 44 cases)
 - **Wire format and subjects (17 cases)**
   - A Request Message has exactly the byte layout in `data-format.md`, and survives encoding and decoding unchanged.
   - A Request Message with an empty payload, and one with binary content and a non-ASCII reply subject, survive encoding and decoding (2 cases).
@@ -241,6 +241,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
 - **Closing and connection failures**
   - Closing the client ends every pending request with a `CLOSED` call.
   - Losing the connection ends every pending request with a `CONNECTION_LOST` call, then calls the connection error callback.
+  - A failing connection error callback still lets the pending requests end, and is logged as the request/reply layer's.
   - Sending a request when not connected raises an error, calls nothing and leaves nothing behind.
   - Accepting requests when not connected raises an error and leaves nothing registered or subscribed.
   - Sending a reply when not connected raises an error.
