@@ -339,6 +339,9 @@ class BaseLayerNode:
                 # release the socket; otherwise the server's wait_closed() never returns
                 await connection.close(discard_unsent=True)
 
+    # The two default receive callbacks do the same thing, but are kept apart on
+    # purpose: they mirror the spec's two routing rules (from upstream, from
+    # downstream) and the separate register_*_receive_callback hooks.
     async def _default_upstream_receive_callback(
         self, source: Connection, data: bytes
     ) -> None:
