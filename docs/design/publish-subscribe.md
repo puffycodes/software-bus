@@ -59,7 +59,7 @@
             - Send a subscription message to all downstream connections, if any.
             - Send a subscription message to all other upstream connections, except the one from which the message is received from.
         - If the connection is already tagged to the subject, it stays tagged once: one unsubscribe message from it then removes it, however many subscribe messages it sent.
-            - The subscription message is still sent on as above. This is redundant, since the other nodes already know about the subject, but harmless: each of them also tags the sender only once.
+            - The subscription message is still sent on as above. This is redundant, since the other nodes already know about the subject, but harmless: each of them also tags the sender only once. See `docs/known-issues.md`.
     - Upon receiving of a subscription message with unsubscribe content.
         - If the message comes from a downstream connection:
             - Remove the connection from the downstream connection list tagged to the subject.
