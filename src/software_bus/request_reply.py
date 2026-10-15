@@ -12,7 +12,6 @@ before publishing, and every acceptor publishes its reply there as-is.
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
 import secrets
 import string
@@ -33,6 +32,7 @@ from .pubsub import (
     PublishCallback,
     PubSubClient,
     _decode_subject,
+    _encode_subject,
     check_publish_length,
 )
 
@@ -73,17 +73,7 @@ class RequestMessage:
 
 
 def encode_request(message: RequestMessage) -> bytes:
-    reply_subject_bytes = message.reply_subject.encode("utf-8")
-    if len(reply_subject_bytes) > _MAX_SUBJECT_LENGTH:
-        raise ValueError(
-            f"reply subject is {len(reply_subject_bytes)} bytes, "
-            f"over the {_MAX_SUBJECT_LENGTH}-byte limit"
-        )
-    return (
-        len(reply_subject_bytes).to_bytes(_SUBJECT_LENGTH_SIZE, "big")
-        + reply_subject_bytes
-        + message.payload
-    )
+    return _encode_subject(message.reply_subject, "reply subject") + message.payload
 
 
 def decode_request(data: bytes) -> RequestMessage:
@@ -153,14 +143,6 @@ def check_request_subject(request_subject: str, sending: bool = False) -> None:
     else:
         longest = derived_request_subject(request_subject)
     _check_request_subject(request_subject, longest)
-
-
-async def _call(callback: Callable[..., Any], *args: Any) -> Any:
-    """Call a sync or async callback and return its result."""
-    result = callback(*args)
-    if inspect.isawaitable(result):
-        result = await result
-    return result
 
 
 @dataclass
@@ -281,7 +263,7 @@ class RequestReplyClient:
             if request.ended:
                 return
             try:
-                done = await _call(callback, actual, reply_payload, ReplyStatus.REPLY)
+                done = await _maybe_await(callback(actual, reply_payload, ReplyStatus.REPLY))
             except Exception:
                 # counts as a false return value: keep waiting
                 logger.exception("Received reply callback for %r failed", reply_subject)
@@ -344,7 +326,7 @@ class RequestReplyClient:
         """End the wait and make the single call saying why, with no reply."""
         await self._end_wait(request)
         try:
-            await _call(request.callback, request.reply_subject, b"", status)
+            await _maybe_await(request.callback(request.reply_subject, b"", status))
         except Exception:
             logger.exception("Received reply callback for %r failed", request.reply_subject)
 

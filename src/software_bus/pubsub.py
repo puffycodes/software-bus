@@ -158,11 +158,20 @@ def _check_id(value: bytes, name: str) -> bytes:
     return bytes(value)
 
 
+def _encode_subject(subject: str, name: str = "subject") -> bytes:
+    """The length-prefixed subject, as `_decode_subject` reads it; raises
+    ValueError if it is too long to encode (over 65535 UTF-8 bytes)."""
+    subject_bytes = subject.encode("utf-8")
+    if len(subject_bytes) > _MAX_SUBJECT_LENGTH:
+        raise ValueError(
+            f"{name} is {len(subject_bytes)} bytes, over the {_MAX_SUBJECT_LENGTH}-byte limit"
+        )
+    return len(subject_bytes).to_bytes(_SUBJECT_LENGTH_SIZE, "big") + subject_bytes
+
+
 def check_subject(subject: str) -> None:
     """Raise ValueError if `subject` is too long to encode (over 65535 UTF-8 bytes)."""
-    length = len(subject.encode("utf-8"))
-    if length > _MAX_SUBJECT_LENGTH:
-        raise ValueError(f"subject is {length} bytes, over the {_MAX_SUBJECT_LENGTH}-byte limit")
+    _encode_subject(subject)
 
 
 def check_publish_subject(subject: str) -> None:
@@ -199,9 +208,7 @@ def encode_message(message: Message) -> bytes:
         )
     if not isinstance(message, (SubscriptionMessage, PublishMessage)):
         raise TypeError(f"unsupported message type: {type(message)!r}")
-    check_subject(message.subject)
-    subject_bytes = message.subject.encode("utf-8")
-    subject_header = len(subject_bytes).to_bytes(_SUBJECT_LENGTH_SIZE, "big") + subject_bytes
+    subject_header = _encode_subject(message.subject)
     if isinstance(message, SubscriptionMessage):
         state = b"\x01" if message.subscribe else b"\x00"
         return bytes([_MSG_SUBSCRIPTION]) + state + subject_header
@@ -269,7 +276,7 @@ def _add_subscriber(
     subscriptions: Dict[str, List[Connection]], subject: str, connection: Connection
 ) -> None:
     connections = subscriptions.setdefault(subject, [])
-    if not any(c is connection for c in connections):
+    if connection not in connections:
         connections.append(connection)
 
 
@@ -278,9 +285,9 @@ def _discard_subscriber(
 ) -> bool:
     """Remove `connection` from `subject`'s list. Returns True if it was there."""
     connections = subscriptions.get(subject)
-    if connections is None or not any(c is connection for c in connections):
+    if connections is None or connection not in connections:
         return False
-    connections[:] = [c for c in connections if c is not connection]
+    connections.remove(connection)
     if not connections:
         subscriptions.pop(subject, None)
     return True
@@ -295,16 +302,11 @@ def _matching_connections(
     (e.g. both "a.b" and "a.*") is still only returned once, so it receives
     a single wire copy of the publish rather than one per matching tag.
     """
-    connections: List[Connection] = []
-    seen_ids = set()
+    connections: Dict[Connection, None] = {}  # a dict keeps the order, unlike a set
     for tagged_subject, tagged_connections in subscriptions.items():
-        if not matcher.match(subject, tagged_subject):
-            continue
-        for connection in tagged_connections:
-            if id(connection) not in seen_ids:
-                seen_ids.add(id(connection))
-                connections.append(connection)
-    return connections
+        if matcher.match(subject, tagged_subject):
+            connections.update(dict.fromkeys(tagged_connections))
+    return list(connections)
 
 
 @dataclass
@@ -329,15 +331,15 @@ class _Query:
 
     def __init__(self, targets: List[Connection]) -> None:
         self.targets = targets
-        self._waiting = {id(c) for c in targets}
+        self._waiting = set(targets)
         self._saw_unknown = False
         self.result: asyncio.Future = asyncio.get_running_loop().create_future()
 
     def reply(self, connection: Connection, result: ReachabilityResult) -> None:
         """Record `connection`'s reply (a failed connection counts as not found)."""
-        if self.result.done() or id(connection) not in self._waiting:
+        if self.result.done() or connection not in self._waiting:
             return
-        self._waiting.discard(id(connection))
+        self._waiting.discard(connection)
         if result == ReachabilityResult.FOUND:
             self.result.set_result(ReachabilityResult.FOUND)
             return
@@ -387,10 +389,9 @@ class PubSubNode:
         self._matcher = StringPatternMatcher()
 
         self.node_id: bytes = uuid.uuid4().bytes
-        # keyed by id(connection): Connection is an unhashable dataclass
-        self._peer_node_ids: Dict[int, bytes] = {}  # node connections -> their Node ID
-        self._pending: Dict[int, _PendingConnection] = {}
-        self._draining: Dict[int, _HeldMessages] = {}  # accepted, held messages not yet processed
+        self._peer_node_ids: Dict[Connection, bytes] = {}  # node connections -> their Node ID
+        self._pending: Dict[Connection, _PendingConnection] = {}
+        self._draining: Dict[Connection, _HeldMessages] = {}  # accepted, held messages not yet processed
         self._queries: Dict[bytes, _Query] = {}  # query ID -> query being answered
         self._query_tasks: Set[asyncio.Task] = set()
         self._checking = False  # an own reachability query is waiting for replies
@@ -457,7 +458,7 @@ class PubSubNode:
     async def _on_upstream_new_connection(self, connection: Connection) -> None:
         # pending before the first await, so nothing received on it is processed as active
         loop = asyncio.get_running_loop()
-        self._pending[id(connection)] = _PendingConnection(
+        self._pending[connection] = _PendingConnection(
             hello=loop.create_future(), lost=loop.create_future()
         )
         await self._send_to([connection], HelloMessage(self.node_id))
@@ -490,9 +491,9 @@ class PubSubNode:
         self, connection: Connection, error: Optional[BaseException] = None
     ) -> None:
         """Drop the cycle-prevention state held for a failed connection."""
-        self._peer_node_ids.pop(id(connection), None)
-        self._draining.pop(id(connection), None)
-        pending = self._pending.pop(id(connection), None)
+        self._peer_node_ids.pop(connection, None)
+        self._draining.pop(connection, None)
+        pending = self._pending.pop(connection, None)
         if pending is not None:
             if not pending.lost.done():
                 pending.lost.set_result(error)  # ends its cycle check, whatever step it is at
@@ -511,14 +512,14 @@ class PubSubNode:
         subjects = [
             subject
             for subject, connections in subscriptions.items()
-            if any(c is connection for c in connections)
+            if connection in connections
         ]
         for subject in subjects:
             await self._unsubscribe(subscriptions, subject, connection)
 
     def _active(self, connections: List[Connection]) -> List[Connection]:
         """`connections` without pending ones, which are never sent to."""
-        return [c for c in connections if id(c) not in self._pending]
+        return [c for c in connections if c not in self._pending]
 
     def _active_node_connections(self) -> List[Connection]:
         return [
@@ -526,7 +527,7 @@ class PubSubNode:
             for c in self._active(
                 [*self._base.downstream_connections, *self._base.upstream_connections]
             )
-            if id(c) in self._peer_node_ids
+            if c in self._peer_node_ids
         ]
 
     # --- cycle check on an established connection ---------------------------
@@ -565,7 +566,7 @@ class PubSubNode:
             return "the peer did not identify itself as a publish/subscribe node"
         if peer_id == self.node_id:
             return "it is a connection to this node itself"
-        if any(self._peer_node_ids.get(id(c)) == peer_id for c in self._active_node_connections()):
+        if any(self._peer_node_ids.get(c) == peer_id for c in self._active_node_connections()):
             return "this node is already connected to that node"
 
         for attempt in range(self.max_check_attempts):
@@ -583,7 +584,7 @@ class PubSubNode:
         return _UNDETERMINED
 
     def _still_pending(self, connection: Connection) -> _PendingConnection:
-        pending = self._pending.get(id(connection))
+        pending = self._pending.get(connection)
         if pending is None:
             raise ConnectionError("connection closed during the cycle check")
         return pending
@@ -622,18 +623,18 @@ class PubSubNode:
 
     async def _activate(self, connection: Connection) -> None:
         """Accept a checked connection: process what it sent meanwhile, in order."""
-        held = self._pending.pop(id(connection)).held
+        held = self._pending.pop(connection).held
         # anything it sends while we drain queues up behind the held messages
-        self._draining[id(connection)] = held
+        self._draining[connection] = held
         try:
             await self._send_subscriptions(connection)
             # stop if it fails meanwhile: its messages must not tag a dead connection
-            while held.messages and id(connection) in self._draining:
+            while held.messages and connection in self._draining:
                 message, size = held.messages.popleft()
                 held.size -= size
                 await self._handle_message(connection, message, from_upstream=True)
         finally:
-            self._draining.pop(id(connection), None)
+            self._draining.pop(connection, None)
 
     # --- reachability queries -----------------------------------------------
 
@@ -660,7 +661,7 @@ class PubSubNode:
         self, source: Connection, message: ReachabilityQueryMessage
     ) -> Optional[ReachabilityResult]:
         """The reply to a query that needs no forwarding, or None to forward it."""
-        if id(source) in self._pending:
+        if source in self._pending:
             # a pending connection isn't there yet, even to reach this node itself
             return ReachabilityResult.UNKNOWN if self._checking else ReachabilityResult.NOT_FOUND
         if message.target_node_id == self.node_id:
@@ -695,7 +696,7 @@ class PubSubNode:
         self, source: Connection, message: ReachabilityQueryMessage, query: _Query
     ) -> None:
         result = await self._collect(message.query_id, query, message.target_node_id)
-        if any(c is source for c in (*self.upstream_connections, *self.downstream_connections)):
+        if source in self.upstream_connections or source in self.downstream_connections:
             await self._send_to([source], ReachabilityReplyMessage(message.query_id, result))
 
     # --- message processing -------------------------------------------------
@@ -732,10 +733,10 @@ class PubSubNode:
 
     def _held_messages(self, source: Connection) -> Optional[_HeldMessages]:
         """Where to keep `source`'s messages until it is accepted, or None if it is."""
-        pending = self._pending.get(id(source))
+        pending = self._pending.get(source)
         if pending is not None:
             return pending.held
-        return self._draining.get(id(source))
+        return self._draining.get(source)
 
     async def _handle_message(
         self, source: Connection, message: Message, *, from_upstream: bool
@@ -745,8 +746,8 @@ class PubSubNode:
         elif isinstance(message, PublishMessage):
             await self._handle_publish(source, message)
         elif isinstance(message, HelloMessage):
-            self._peer_node_ids[id(source)] = message.node_id
-            pending = self._pending.get(id(source))
+            self._peer_node_ids[source] = message.node_id
+            pending = self._pending.get(source)
             if pending is not None and not pending.hello.done():
                 pending.hello.set_result(message.node_id)
         elif isinstance(message, ReachabilityQueryMessage):

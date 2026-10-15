@@ -48,9 +48,12 @@ def check_payload_length(length: int) -> None:
         )
 
 
-@dataclass
+@dataclass(eq=False)
 class Connection:
-    """A single TCP connection to another instance."""
+    """A single TCP connection to another instance.
+
+    Equal only to itself, and hashable (eq=False), so it can be a dict key or set member.
+    """
 
     reader: asyncio.StreamReader
     writer: asyncio.StreamWriter
@@ -125,10 +128,12 @@ ConnectionErrorCallback = Callable[["Connection", Optional[BaseException]], Any]
 NewConnectionCallback = Callable[["Connection"], Any]
 
 
-async def _maybe_await(result: Any) -> None:
-    """Await `result` if a callback returned an awaitable (i.e. it was async)."""
+async def _maybe_await(result: Any) -> Any:
+    """Return what a sync or async callback returned: `result`, awaited if it is
+    an awaitable (i.e. the callback was async)."""
     if inspect.isawaitable(result):
-        await result
+        return await result
+    return result
 
 
 async def _call_logging_failure(what: str, callback: Callable[..., Any], *args: Any) -> None:
