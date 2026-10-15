@@ -6,6 +6,7 @@
 - Keep one design spec per area in `docs/design/`, each mapping to one module.
 - Keep specs and code in step both ways: a spec change means a code change, and the reverse. Change the spec, code, tests and test catalogue together.
 - Write down *why* a rule exists when it looks simplifiable, so nobody "cleans it up" later.
+- Record limitations left unfixed on purpose in a known-issues document, with why, and point to it from the spec. Remove an entry when it is fixed.
 
 ### Structure
 - Build layers by composition: a higher layer contains a lower-layer object and plugs in its behaviour through callbacks rather than subclassing.

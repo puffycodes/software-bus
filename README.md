@@ -221,8 +221,8 @@ client.register_connection_error_callback(
 ```
 
 Closing the client yourself with `close()` doesn't call the callback. Data
-already sent is still delivered, but `close()` waits at most `send_timeout`
-(30 seconds) for the node to take it, so it never hangs on a node that has
+already sent is still delivered, but `close()` waits at most `close_timeout`
+(5 seconds) for the node to take it, so it never hangs on a node that has
 stopped reading.
 
 A client holds one connection at a time: `connect()` on a client that's

@@ -8,6 +8,7 @@ How this project is developed and tested. For the commands to install and run th
 - `docs/design/` holds one spec per area: `base-layer.md`, `publish-subscribe.md`, `subject-matcher.md`, `request-reply.md`, `data-format.md` and `bus-check.md`. Each maps to one module.
 - The specs and the code are kept in step in both directions. A change to the spec means a matching change to the code, and the reverse. A single change usually updates the spec, the code, the tests and `test-cases.md` together.
 - The specs record the reasons behind rules that look like they could be simplified, such as never sending a publish back to where it came from, or deciding per neighbour when to unsubscribe. This stops someone "cleaning them up" later.
+- [`known-issues.md`](known-issues.md) records limitations left unfixed on purpose, each with its effect, why it is left, and how it could be done. The spec rule concerned points to it. An entry is removed in the same change that fixes it.
 
 ### Layered architecture built by composition
 - There are three layers: a base layer that floods data, a pub/sub layer that routes it, and a request/reply layer on top of pub/sub. The base and pub/sub layers each have a Node class and a Client class; request/reply has only a client, because nodes route its messages as ordinary publishes.
