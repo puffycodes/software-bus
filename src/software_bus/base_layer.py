@@ -290,13 +290,13 @@ class BaseLayerNode:
     def _connections(self, from_upstream: bool) -> List[Connection]:
         return self.upstream_connections if from_upstream else self.downstream_connections
 
+    def _all_connections(self) -> List[Connection]:
+        """All downstream and upstream connections."""
+        return [*self.downstream_connections, *self.upstream_connections]
+
     def _peers_except(self, source: Connection) -> List[Connection]:
         """All downstream and upstream connections other than `source`."""
-        return [
-            c
-            for c in (*self.downstream_connections, *self.upstream_connections)
-            if c is not source
-        ]
+        return [c for c in self._all_connections() if c is not source]
 
     async def _relay_loop(self, source: Connection, from_upstream: bool) -> None:
         callback = (
@@ -438,7 +438,7 @@ class BaseLayerNode:
 
         # close connections before wait_closed(), which (Python 3.12.1+) waits
         # for every accepted connection to be closed
-        for connection in (*self.upstream_connections, *self.downstream_connections):
+        for connection in self._all_connections():
             await connection.close(discard_unsent=True)  # doesn't wait for slow peers
         self.upstream_connections.clear()
         self.downstream_connections.clear()

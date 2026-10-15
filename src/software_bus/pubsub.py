@@ -422,7 +422,7 @@ class PubSubNode:
     async def close(self) -> None:
         for task in list(self._query_tasks):
             task.cancel()
-        connections = [*self.upstream_connections, *self.downstream_connections]
+        connections = self._base._all_connections()
         await self._base.close()
         # closing reports no connection errors, so end any cycle check still
         # running here: establish_connection then fails instead of timing out
@@ -522,13 +522,7 @@ class PubSubNode:
         return [c for c in connections if c not in self._pending]
 
     def _active_node_connections(self) -> List[Connection]:
-        return [
-            c
-            for c in self._active(
-                [*self._base.downstream_connections, *self._base.upstream_connections]
-            )
-            if c in self._peer_node_ids
-        ]
+        return [c for c in self._active(self._base._all_connections()) if c in self._peer_node_ids]
 
     # --- cycle check on an established connection ---------------------------
 
@@ -787,13 +781,7 @@ class PubSubNode:
             return
         remaining = self._subscribers(subject)
         if not remaining:
-            targets = [
-                c
-                for c in self._active(
-                    [*self._base.downstream_connections, *self._base.upstream_connections]
-                )
-                if c is not connection
-            ]
+            targets = self._active(self._base._peers_except(connection))
         elif len(remaining) == 1:
             targets = remaining
         else:
