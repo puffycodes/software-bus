@@ -697,6 +697,7 @@ docs/design/    design docs
 docs/test-cases.md  every test, in plain English (plus manual tests)
 docs/development-approach.md   how this project is developed and tested
 docs/development-guideline.md  the same, condensed and project-neutral
+docs/known-issues.md  limitations deliberately left unfixed
 src/software_bus/
     base_layer.py   BaseLayerNode, Connection
     client.py       BaseLayerClient

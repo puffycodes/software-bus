@@ -20,6 +20,7 @@ The bus assumes that every process that connects to it is trusted and cooperativ
     - subscribe to any subject, including with wild cards, and so receive every publish, including the requests and replies of other clients (see Reserved Subjects in `request-reply.md`);
     - publish to any subject, including another client's reply subject;
     - use up a node's resources, e.g. by opening many connections or making many subscriptions. The limits in these specs bound the size of a message and of a connection's send queue, but not the number of connections or subscriptions.
+        - This applies to mistakes as well: a client that keeps opening connections without closing them, or keeps subscribing to new subjects without unsubscribing, is not stopped either. Limits were left out on purpose: the bus runs on one machine or a trusted network, and a subscription limit that suits a client would cut a node connection, which carries the subscriptions of every node and client behind it. See `docs/known-issues.md`.
 - Protecting against such peers (e.g. authenticating peers, encrypting connections, or limiting who may subscribe or publish to a subject) would need changes to the wire format (`data-format.md`), and is not part of this design.
 
 ## Callbacks
