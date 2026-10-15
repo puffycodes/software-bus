@@ -20,6 +20,7 @@
 
 ### Error handling
 - A failure in user-supplied code (e.g. a callback) loses only that one unit of work, never the connection or process.
+- Log a failure in user-supplied code under the component it belongs to, so the log shows where it came from.
 - Malformed input raises a specific error, which is logged and skipped.
 - Validate before changing state, so a rejected input leaves nothing behind.
 
