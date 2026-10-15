@@ -12,6 +12,7 @@ The formats in this document are **version 1** of the wire format. No message ca
 - **Publish Messages and Request Messages cannot be extended:** their payload runs to the end of the message, so there is no place to append a field. A change to either needs a new message type.
 - **The base layer framing cannot change.** Every layer depends on it, and it has no type tag.
 - A later version may add a version number, e.g. as a field appended to Hello, once every node in use ignores trailing bytes in Hello. A node from before this rule rejects a Hello longer than 17 bytes as malformed, and its cycle check then refuses the connection.
+    - Not added yet, on purpose (2026-10-15): a version number is only worth having once a feature needs to know what a peer supports, and none does yet. It would cover node connections only, since clients send no Hello.
 
 ## Base Layer Wire Format
 
