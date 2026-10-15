@@ -7,7 +7,7 @@ import logging
 import random
 import sys
 from datetime import datetime
-from typing import Any, Awaitable, Callable, Coroutine, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Coroutine, Iterable, List, Optional, Tuple
 
 from .base_layer import DEFAULT_HOST, DEFAULT_PORT
 from .pubsub import CycleCheckRefused
@@ -74,6 +74,17 @@ def add_debug_argument(parser: argparse.ArgumentParser) -> None:
         default=False,
         metavar="true|false",
         help="print logging information (default: false)",
+    )
+
+
+def add_time_stamp_argument(parser: argparse.ArgumentParser, what: str) -> None:
+    """Add --time-stamp; `what` is e.g. "received message"."""
+    parser.add_argument(
+        "--time-stamp",
+        type=parse_bool,
+        default=True,
+        metavar="true|false",
+        help=f"print a time stamp with each {what} (default: true)",
     )
 
 
@@ -295,6 +306,20 @@ class NoReply(ScriptError):
 
     def __init__(self, subject: str) -> None:
         super().__init__(f"no reply to {subject!r} before the timeout")
+
+
+def check_subjects(check: Callable[[str], None], subjects: Iterable[str]) -> None:
+    """Run `check` (e.g. pubsub.check_subject) on each subject, raising
+    InvalidSubject for the first it rejects with a ValueError.
+
+    Scripts call this before connecting, so an invalid subject is reported
+    even with no server.
+    """
+    for subject in subjects:
+        try:
+            check(subject)
+        except ValueError as exc:
+            raise InvalidSubject(subject, exc) from exc
 
 
 async def connect(client: Any, host: str, port: int) -> None:

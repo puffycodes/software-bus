@@ -3,13 +3,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from functools import partial
 from typing import List, Optional
 
 from ._cli import (
-    InvalidSubject,
     NoReply,
     add_debug_argument,
+    add_time_stamp_argument,
     add_upstream_argument,
+    check_subjects,
     configure_logging,
     connect,
     parse_bool,
@@ -51,13 +53,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="keep waiting for more replies until the timeout; "
         "false stops after the first reply (default: true)",
     )
-    parser.add_argument(
-        "--time-stamp",
-        type=parse_bool,
-        default=True,
-        metavar="true|false",
-        help="print a time stamp with each reply and with a timeout (default: true)",
-    )
+    add_time_stamp_argument(parser, "reply and with a timeout")
     add_debug_argument(parser)
     return parser
 
@@ -75,11 +71,7 @@ async def run(
 
     Raises NoReply if the timeout ends the wait before any reply arrived.
     """
-    # checked before connecting: an invalid subject is reported even with no server
-    try:
-        check_request_subject(request_subject, sending=True)
-    except ValueError as exc:
-        raise InvalidSubject(request_subject, exc) from exc
+    check_subjects(partial(check_request_subject, sending=True), [request_subject])
 
     client = RequestReplyClient()
     ended: asyncio.Future = asyncio.get_running_loop().create_future()

@@ -6,12 +6,12 @@ import asyncio
 from typing import List, Optional
 
 from ._cli import (
-    InvalidSubject,
     add_debug_argument,
+    add_time_stamp_argument,
     add_upstream_argument,
+    check_subjects,
     configure_logging,
     connect,
-    parse_bool,
     parse_subject_list,
     print_received,
     run_until_connection_lost,
@@ -37,13 +37,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         required=True,
         help='message to reply with; the reply is "Reply for <request_subject>: <reply_message>"',
     )
-    parser.add_argument(
-        "--time-stamp",
-        type=parse_bool,
-        default=True,
-        metavar="true|false",
-        help="print a time stamp with each received request (default: true)",
-    )
+    add_time_stamp_argument(parser, "received request")
     add_debug_argument(parser)
     return parser
 
@@ -55,12 +49,7 @@ async def run(
     reply_message: str,
     time_stamp: bool = True,
 ) -> None:
-    # checked before connecting: an invalid subject is reported even with no server
-    for request_subject in request_subjects:
-        try:
-            check_request_subject(request_subject)
-        except ValueError as exc:
-            raise InvalidSubject(request_subject, exc) from exc
+    check_subjects(check_request_subject, request_subjects)
 
     client = RequestReplyClient()
 

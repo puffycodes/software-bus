@@ -5,10 +5,10 @@ import argparse
 from typing import List, Optional
 
 from ._cli import (
-    InvalidSubject,
     add_debug_argument,
     add_repeat_arguments,
     add_upstream_argument,
+    check_subjects,
     configure_logging,
     connect,
     repeat,
@@ -46,11 +46,7 @@ async def run(
     repeat_count: int = 1,
     repeat_interval: float = 1.0,
 ) -> None:
-    # checked before connecting: an invalid subject is reported even with no server
-    try:
-        check_publish_subject(subject)
-    except ValueError as exc:
-        raise InvalidSubject(subject, exc) from exc
+    check_subjects(check_publish_subject, [subject])
 
     client = PubSubClient()
 

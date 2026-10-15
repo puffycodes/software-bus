@@ -1,6 +1,6 @@
 import pytest
 
-from software_bus.subject_matcher import ExactStringMatcher, StringPatternMatcher
+from software_bus.subject_matcher import ExactStringMatcher, StringPatternMatcher, has_wildcard
 
 
 @pytest.mark.parametrize(
@@ -50,3 +50,18 @@ def test_exact_string_matcher(given_subject, target_subject, expected):
 )
 def test_string_pattern_matcher(given_subject, target_subject, expected):
     assert StringPatternMatcher().match(given_subject, target_subject) is expected
+
+
+@pytest.mark.parametrize(
+    "subject,expected",
+    [
+        ("a.*", True),
+        ("*", True),
+        ("a.*.c", True),
+        ("a.b", False),
+        ("a*.b", False),
+        ("", False),
+    ],
+)
+def test_has_wildcard_only_for_a_whole_star_part(subject, expected):
+    assert has_wildcard(subject) is expected

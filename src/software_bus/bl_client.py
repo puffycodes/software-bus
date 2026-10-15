@@ -8,10 +8,10 @@ from typing import List, Optional, Union
 from ._cli import (
     add_debug_argument,
     add_repeat_arguments,
+    add_time_stamp_argument,
     add_upstream_argument,
     configure_logging,
     connect,
-    parse_bool,
     print_received,
     repeat,
     run_until_connection_lost,
@@ -31,13 +31,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="message to send (default: None, don't send any message)",
     )
     add_repeat_arguments(parser, "send")
-    parser.add_argument(
-        "--time-stamp",
-        type=parse_bool,
-        default=True,
-        metavar="true|false",
-        help="print a time stamp with each received message (default: true)",
-    )
+    add_time_stamp_argument(parser, "received message")
     add_debug_argument(parser)
     return parser
 

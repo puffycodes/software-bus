@@ -1,10 +1,10 @@
 # Test Cases
 
-All 430 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 438 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
-## Subject matching (`test_subject_matcher.py`, 26 cases)
+## Subject matching (`test_subject_matcher.py`, 32 cases)
 - **Exact matcher (4 cases):** a subject matches only an identical subject. `a.b` matches `a.b` but not `a.c` or `a.b.c`, and an empty subject matches an empty subject.
 - **Wildcard pattern matcher (22 cases):**
   - `a.b` matches `a.b`, `a.*`, `*.b` and `*.*`.
@@ -16,6 +16,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Matching is case-sensitive: `A.b` doesn't match `a.b`, and `a.b` doesn't match `A.*`.
   - Only a whole `*` part is a wildcard: `ab` doesn't match `a*`, which only matches `a*` itself.
   - Empty parts count like any other part: `a..b` matches `a.*.b` and `a..b`, `a.b` doesn't match `a..b`, `a.` matches `a.*`, and `a` doesn't match `a.*`.
+- **Spotting a wild card (6 cases):** a subject has a wild card only if a whole part is `*`: `a.*`, `*` and `a.*.c` do; `a.b`, `a*.b` and an empty subject don't.
 
 ## Base layer node (`test_base_layer.py`, 42 cases)
 - **Setup and listening**
@@ -253,7 +254,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Accepting with the same subject and callback twice still calls it once per request. A failing request callback is logged and doesn't stop another acceptor on the same client. Stopping one callback leaves the others accepting, stopping it again does nothing, and stopping the last one removes the subscription.
   - An acceptor logs and ignores bad requests (3 cases): a malformed Request Message, one whose reply subject isn't a reply subject, and one whose reply subject belongs to a different request subject.
 
-## Shared script helpers (`test_cli.py`, 52 cases)
+## Shared script helpers (`test_cli.py`, 54 cases)
 - **Options and parsing**
   - `true`/`false` options accept any capitalisation (3 cases).
   - Other values like `yes`, `1` or an empty string are rejected (3 cases).
@@ -263,6 +264,8 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - Every client script's `--upstream` defaults to 127.0.0.1:8787 (5 scripts).
   - Both servers' `--reconnect` defaults to false and accepts true (2 scripts).
   - The server help text names the right server.
+  - Checking subjects passes every subject the check accepts.
+  - Checking subjects raises "invalid subject" for the first one the check rejects, with the check's reason.
 - **Runtime helpers**
   - Connecting to an unreachable server raises a clear "cannot connect" error.
   - Repeat calls the action the given number of times, with the interval in between.

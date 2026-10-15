@@ -6,12 +6,12 @@ import asyncio
 from typing import List, Optional
 
 from ._cli import (
-    InvalidSubject,
     add_debug_argument,
+    add_time_stamp_argument,
     add_upstream_argument,
+    check_subjects,
     configure_logging,
     connect,
-    parse_bool,
     parse_subject_list,
     print_received,
     run_until_connection_lost,
@@ -32,13 +32,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         metavar='"<subject_1>,<subject_2>,..."',
         help="comma-separated subjects to subscribe to",
     )
-    parser.add_argument(
-        "--time-stamp",
-        type=parse_bool,
-        default=True,
-        metavar="true|false",
-        help="print a time stamp with each received publish (default: true)",
-    )
+    add_time_stamp_argument(parser, "received publish")
     add_debug_argument(parser)
     return parser
 
@@ -49,12 +43,7 @@ async def run(
     subjects: List[str],
     time_stamp: bool = True,
 ) -> None:
-    # checked before connecting: an invalid subject is reported even with no server
-    for subject in subjects:
-        try:
-            check_subject(subject)
-        except ValueError as exc:
-            raise InvalidSubject(subject, exc) from exc
+    check_subjects(check_subject, subjects)
 
     def on_publish(matched_subject: str, actual_subject: str, payload: bytes) -> None:
         print_received(

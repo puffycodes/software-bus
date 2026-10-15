@@ -3,6 +3,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+WILDCARD = "*"
+
+
+def has_wildcard(subject: str) -> bool:
+    """True if a whole "."-separated part of `subject` is the wild card `*`."""
+    return WILDCARD in subject.split(".")
+
 
 class SubjectMatcher(ABC):
     """Tests whether a given subject matches a target subject."""
@@ -30,6 +37,6 @@ class StringPatternMatcher(SubjectMatcher):
         if len(given_parts) != len(target_parts):
             return False
         return all(
-            target_part == "*" or given_part == target_part
+            target_part == WILDCARD or given_part == target_part
             for given_part, target_part in zip(given_parts, target_parts)
         )

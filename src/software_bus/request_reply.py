@@ -35,6 +35,7 @@ from .pubsub import (
     _encode_subject,
     check_publish_length,
 )
+from .subject_matcher import has_wildcard
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,6 @@ REQUEST_PREFIX = "_request"
 REPLY_PREFIX = "_reply"
 UNIQUE_ID_LENGTH = 32
 _UNIQUE_ID_ALPHABET = string.digits + string.ascii_uppercase + string.ascii_lowercase
-_WILDCARD = "*"
 DEFAULT_TIMEOUT = 5 * 60.0
 
 ReceivedRequestCallback = Callable[[str, str, bytes], Any]
@@ -99,10 +99,6 @@ def _is_unique_id(value: str) -> bool:
     return len(value) == UNIQUE_ID_LENGTH and all(c in _UNIQUE_ID_ALPHABET for c in value)
 
 
-def _has_wildcard(subject: str) -> bool:
-    return _WILDCARD in subject.split(".")
-
-
 def is_valid_reply_subject(subject: str) -> bool:
     """True if `subject` has the form of a Derived Reply Subject."""
     parts = subject.split(".")
@@ -110,7 +106,7 @@ def is_valid_reply_subject(subject: str) -> bool:
         len(parts) >= 3
         and parts[0] == REPLY_PREFIX
         and _is_unique_id(parts[-1])
-        and _WILDCARD not in parts
+        and not has_wildcard(subject)
     )
 
 
@@ -126,7 +122,7 @@ def _is_reply_subject_for(reply_subject: str, request_subject: str) -> bool:
 
 def _check_request_subject(request_subject: str, longest_derived: str) -> None:
     """Parameter Checks for a request subject, given the longest derived subject it is used in."""
-    if _has_wildcard(request_subject):
+    if has_wildcard(request_subject):
         raise ValueError(f"request subject {request_subject!r} contains a wild card")
     length = len(longest_derived.encode("utf-8"))
     if length > _MAX_SUBJECT_LENGTH:

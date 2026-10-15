@@ -18,8 +18,10 @@ from software_bus import (
 from software_bus._cli import (
     ConnectFailed,
     ConnectionLost,
+    InvalidSubject,
     _keep_connected,
     build_server_arg_parser,
+    check_subjects,
     connect,
     parse_bool,
     parse_timeout,
@@ -93,6 +95,24 @@ def test_build_server_arg_parser_names_the_server_in_help():
     help_text = build_server_arg_parser("Run a thing.", "thing_server").format_help()
     assert "Run a thing." in help_text
     assert "upstream thing_server" in help_text
+
+
+def test_check_subjects_passes_subjects_the_check_accepts():
+    checked = []
+    check_subjects(checked.append, ["a.b", "c"])
+    assert checked == ["a.b", "c"]
+
+
+def test_check_subjects_raises_invalid_subject_for_the_first_rejected_one():
+    def check(subject):
+        if subject.startswith("bad"):
+            raise ValueError("no good")
+
+    with pytest.raises(InvalidSubject) as exc_info:
+        check_subjects(check, ["ok", "bad1", "bad2"])
+
+    assert "'bad1'" in str(exc_info.value) and "no good" in str(exc_info.value)
+    assert isinstance(exc_info.value.error, ValueError)
 
 
 @pytest.mark.asyncio

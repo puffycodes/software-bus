@@ -49,7 +49,7 @@ from .base_layer import (
     check_payload_length,
 )
 from .client import BaseLayerClient
-from .subject_matcher import StringPatternMatcher
+from .subject_matcher import StringPatternMatcher, has_wildcard
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +178,7 @@ def check_publish_subject(subject: str) -> None:
     """Raise ValueError if `subject` can't be published to: too long, or it has a
     wild card (a published subject is always literal)."""
     check_subject(subject)
-    if "*" in subject.split("."):
+    if has_wildcard(subject):
         raise ValueError(f"cannot publish to {subject!r}: it contains a wild card")
 
 
