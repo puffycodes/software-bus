@@ -5,8 +5,8 @@ How this project is developed and tested. For the commands to install and run th
 ## Development approach
 
 ### Spec-first design docs
-- `docs/design/` holds one spec per area: `base-layer.md`, `publish-subscribe.md`, `subject-matcher.md`, `request-reply.md`, `data-format.md` and `bus-check.md`. Each maps to one module.
-- The specs and the code are kept in step in both directions. A change to the spec means a matching change to the code, and the reverse. A single change usually updates the spec, the code, the tests and `test-cases.md` together.
+- [`docs/design/`](design/) holds one spec per area: [`base-layer.md`](design/base-layer.md), [`publish-subscribe.md`](design/publish-subscribe.md), [`subject-matcher.md`](design/subject-matcher.md), [`request-reply.md`](design/request-reply.md), [`data-format.md`](design/data-format.md) and [`bus-check.md`](design/bus-check.md). Each maps to one module.
+- The specs and the code are kept in step in both directions. A change to the spec means a matching change to the code, and the reverse. A single change usually updates the spec, the code, the tests and [`test-cases.md`](test-cases.md) together.
 - The specs record the reasons behind rules that look like they could be simplified, such as never sending a publish back to where it came from, or deciding per neighbour when to unsubscribe. This stops someone "cleaning them up" later.
 - [`known-issues.md`](known-issues.md) records limitations left unfixed on purpose, each with its effect, why it is left, and how it could be done. The spec rule concerned points to it. An entry is removed in the same change that fixes it.
 
@@ -31,15 +31,15 @@ How this project is developed and tested. For the commands to install and run th
 - No runtime dependencies. `psutil` is an optional `check` extra and is imported only inside `bus_check.collect()`.
 - Installed as an editable package from `pyproject.toml` (no `setup.py`, so pip ≥ 21.3 is needed). `PYTHONPATH=src` is the fallback when the package isn't installed.
 - Behaviour that differs between Python versions and operating systems is handled and documented:
-  - From 3.12.1, `Server.wait_closed()` hangs until every connection is closed.
-  - On Windows, `bl_server.exe` is a launcher that runs the real process as a child.
-  - On Windows, asyncio keeps a loopback connection to itself in every process.
-  - On Python 3.8, `asyncio.wait_for` can return normally even though the task running it was cancelled.
-  - On Windows, a TCP connect to a port nobody listens on takes about 2 seconds to fail, so tests must not assume such an attempt is already over.
-  - Socket buffers are much smaller on Linux than on Windows, so a test that sends a large message has to read it at the same time. Run the full suite on both.
+    - From 3.12.1, `Server.wait_closed()` hangs until every connection is closed.
+    - On Windows, `bl_server.exe` is a launcher that runs the real process as a child.
+    - On Windows, asyncio keeps a loopback connection to itself in every process.
+    - On Python 3.8, `asyncio.wait_for` can return normally even though the task running it was cancelled.
+    - On Windows, a TCP connect to a port nobody listens on takes about 2 seconds to fail, so tests must not assume such an attempt is already over.
+    - Socket buffers are much smaller on Linux than on Windows, so a test that sends a large message has to read it at the same time. Run the full suite on both.
 
 ### Documentation upkeep
-- `CLAUDE.md` and `README.md` are updated along with each feature.
+- [`CLAUDE.md`](../CLAUDE.md) and [`README.md`](../README.md) are updated along with each feature.
 - No linter or formatter is configured.
 - Features are built up in steps: base layer → scripts → pub/sub → error handling → wildcard subjects → cycle prevention → `bus_check` → request/reply.
 

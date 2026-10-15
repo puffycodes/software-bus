@@ -1,4 +1,6 @@
-# Development and Testing Approach
+# Development and Testing Guideline
+
+A condensed, project-neutral version of [`development-approach.md`](development-approach.md), meant for reuse in other projects.
 
 ## Development
 
