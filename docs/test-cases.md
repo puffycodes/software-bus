@@ -89,7 +89,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
   - The default connection error callback logs a message.
   - Closing the client does not call the connection error callback.
   - Closing a client that never connected, or closing it twice, does no harm.
-  - Closing a client whose node has stopped reading doesn't hang: it gives up on the unsent data after the send timeout.
+  - Closing a client whose node has stopped reading doesn't hang: it gives up on the unsent data after the close timeout, however long the send timeout is.
   - Messages sent just before closing still arrive.
   - A failed send is reported to the connection error callback and also raised to the caller.
   - A send the node doesn't take within the send timeout fails: it's reported to the connection error callback and raised.

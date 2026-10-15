@@ -5,6 +5,7 @@ import logging
 from typing import Any, Callable, Optional
 
 from .base_layer import (
+    DEFAULT_CLOSE_TIMEOUT,
     DEFAULT_HOST,
     DEFAULT_PORT,
     DEFAULT_SEND_TIMEOUT,
@@ -27,6 +28,7 @@ class BaseLayerClient:
     """
 
     send_timeout = DEFAULT_SEND_TIMEOUT
+    close_timeout = DEFAULT_CLOSE_TIMEOUT
 
     def __init__(self) -> None:
         self.connection: Optional[Connection] = None
@@ -136,11 +138,11 @@ class BaseLayerClient:
         """Close the connection, if any.
 
         Data already sent is still delivered, but close() waits at most
-        `send_timeout` for the node to take it, then drops the rest, so it
+        `close_timeout` for the node to take it, then drops the rest, so it
         never hangs on a node that has stopped reading.
         """
         if self.connection is not None:
-            await self.connection.close(flush_timeout=self.send_timeout)
+            await self.connection.close(flush_timeout=self.close_timeout)
             self.connection = None
 
     async def __aenter__(self) -> "BaseLayerClient":

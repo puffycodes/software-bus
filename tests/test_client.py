@@ -528,7 +528,7 @@ async def test_client_close_does_not_hang_on_a_node_that_stopped_reading():
         await wait_until(lambda: client.connection.writer.transport.get_write_buffer_size() > 0)
         await asyncio.sleep(0.2)  # stuck: the socket buffers are full
         sender.cancel()
-        client.send_timeout = 0.3  # how long close() may wait for the rest to be taken
+        client.close_timeout = 0.3  # how long close() may wait for the rest to be taken
 
         await asyncio.wait_for(client.close(), timeout=2)
         assert client.connection is None

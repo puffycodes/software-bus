@@ -23,6 +23,8 @@ _LENGTH_PREFIX_SIZE = 4
 MAX_PAYLOAD_LENGTH = 16 * 1024 * 1024
 
 DEFAULT_SEND_TIMEOUT = 30.0
+# How long a client's close() waits for the node to take what it has sent.
+DEFAULT_CLOSE_TIMEOUT = 5.0
 DEFAULT_SEND_QUEUE_LIMIT = 4 * MAX_PAYLOAD_LENGTH
 
 

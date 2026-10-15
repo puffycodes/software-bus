@@ -4,6 +4,7 @@
 
 - **Maximum payload length** The largest payload a single message can carry, 16 MiB (16777216 bytes). See "Base Layer Wire Format" in `data-format.md`.
 - **Send timeout** 30 seconds. The longest time data may wait to be handed to the operating system for one connection.
+- **Close timeout** 5 seconds. The longest time a client's Close waits for the node to take data already sent.
 - **Send queue limit** 64 MiB (four times the maximum payload length). The most data a node keeps waiting to be sent on one connection.
 - **Reconnect delay** How long a server waits before trying an upstream connection again. The first delay is 1 second, and each failed attempt in a row doubles it, up to 60 seconds. Each delay is multiplied by a random factor between 0.5 and 1, so that servers that lost the same upstream node do not all try again at the same moment. The delay goes back to 1 second once a connection succeeds.
 
@@ -152,8 +153,9 @@ Functionalities
     - If the connection error callback fails, follow Callbacks: the connection is still forgotten and closed, and a failure to send is still reported to the caller of Send as that failure.
     - Closing the client itself is not an error, and does not call the connection error callback.
 - **Close** Close the connection, if any. The client is then no longer connected.
-    - Data already sent is still delivered: Close waits for the node to take it, but at most the send timeout. Whatever the node has not taken by then is discarded, so Close never hangs on a node that has stopped reading.
+    - Data already sent is still delivered: Close waits for the node to take it, but at most the close timeout. Whatever the node has not taken by then is discarded, so Close never hangs on a node that has stopped reading.
         - It does not discard at once, as the node's Close does: a client often sends its last message just before closing, and that message must still arrive.
+        - The close timeout is shorter than the send timeout: a node that is working takes the last data almost at once, so a long wait only delays a client being closed (e.g. with Ctrl-C) on a node that has stopped reading.
 
 ## bl_server Script
 
