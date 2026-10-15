@@ -50,7 +50,6 @@ ReceivedRequestCallback = Callable[[str, str, bytes], Any]
 """Called with (request_subject, reply_subject, request_payload)."""
 
 
-
 class ReplyStatus(Enum):
     """Why a received reply callback is called: with a reply, or because the wait ended without one."""
 

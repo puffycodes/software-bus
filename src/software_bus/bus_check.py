@@ -86,7 +86,8 @@ def node_kind(cmdline: Sequence[str]) -> Optional[str]:
         return None
     args = list(cmdline[1:])
     if "-m" in args:
-        module = args[args.index("-m") + 1] if args.index("-m") + 1 < len(args) else ""
+        module_at = args.index("-m") + 1
+        module = args[module_at] if module_at < len(args) else ""
         for kind in _NODE_KINDS:
             if module == f"software_bus.{kind}":
                 return kind
