@@ -7,6 +7,14 @@
     - Solved on: 16 October 2026
     - Cause: a race in `BaseLayerNode.close()`. `client.connect()` can return before the node has handled the connection it accepted. A `close()` in that gap doesn't see the connection, and the node then lists it after closing, so nothing closes it, and `Server.wait_closed()` (Python 3.12.1+) waits for it forever. The test's failing callback was not involved.
     - Fix: `close()` marks the node closed first, and a connection that arrives after that is closed at once instead of listed. The same applies to `establish_connection`, which then raises a connection error. Covered by `test_close_closes_a_connection_accepted_but_not_handled_yet` and `test_establish_connection_closes_and_raises_if_the_node_closed_meanwhile` in `tests/test_base_layer.py`.
+    - Verified on the affected machine: not yet. The hang never happened on its own on Windows with Python 3.13; it was only shown by forcing the race. To verify, on the machine that hung (Python 3.12.4), on the branch with the fix (if the package isn't installed, prefix each command with `PYTHONPATH=src`, or in PowerShell set `$env:PYTHONPATH = "src"` first):
+        1. Check the branch and the Python version: `git checkout fix-close-before-accept`, then `python --version`.
+        2. Run the test that hung 100 times. Every run must pass and none may hang: one passing run proves little, because the race is rare.
+            - bash: `for i in $(seq 100); do timeout 60 python -m pytest -q tests/test_client.py::test_client_failing_connection_error_callback_stays_out_of_the_receive_loop || { echo "FAILED on run $i"; break; }; done`
+            - PowerShell (no timeout, so stop a hung run with Ctrl-C): `for ($i = 1; $i -le 100; $i++) { python -m pytest -q tests/test_client.py::test_client_failing_connection_error_callback_stays_out_of_the_receive_loop; if ($LASTEXITCODE) { "FAILED on run $i"; break } }`
+        3. Run the two new tests, which force the race, so they don't depend on timing: `python -m pytest -v tests/test_base_layer.py -k "not_handled_yet or closed_meanwhile"`.
+        4. Run the full test suite once: `python -m pytest -q`.
+        5. Optional: run step 2 on `main` first. If it hangs on `main` but not on the branch, that confirms the machine hits the race and that the fix stops it. If it never hangs on `main` either, step 2 shows little, and the result rests on steps 3 and 4.
 
 - Flaky Test: tests/test_request_reply.py::test_failing_reply_callback_keeps_the_wait failed once in a full test suite run on WSL (Ubuntu 20.04, Python 3.8.10). It passed in 5 reruns on its own, and with the rest of `test_request_reply.py`. The failure message wasn't kept.
     - Reported on: 16 October 2026
