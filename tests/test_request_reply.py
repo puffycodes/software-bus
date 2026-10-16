@@ -14,6 +14,8 @@ from software_bus.request_reply import (
     new_unique_id,
 )
 
+from helpers import wait_until
+
 ID = "A" * 32
 REPLY = ReplyStatus.REPLY
 TIMED_OUT = ReplyStatus.TIMED_OUT
@@ -534,7 +536,7 @@ async def test_failing_reply_callback_keeps_the_wait(caplog):
             await replier.send_reply(reply_subject, b"2")
 
         await replier.accept_request("svc", on_request)
-        await asyncio.sleep(0.05)
+        await wait_until(lambda: "_request.svc" in node._downstream_subscriptions)
 
         def on_reply(reply_subject, payload, status):
             replies.append(payload)
@@ -544,7 +546,7 @@ async def test_failing_reply_callback_keeps_the_wait(caplog):
 
         with caplog.at_level(logging.ERROR, logger="software_bus.request_reply"):
             await requester.send_request("svc", b"", on_reply, timeout=1)
-            await asyncio.sleep(0.2)
+            await wait_until(lambda: len(replies) == 2)
         assert replies == [b"1", b"2"]
         assert "boom" in caplog.text
         assert requester._requests == {}

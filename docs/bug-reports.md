@@ -18,5 +18,7 @@
 
 - Flaky Test: tests/test_request_reply.py::test_failing_reply_callback_keeps_the_wait failed once in a full test suite run on WSL (Ubuntu 20.04, Python 3.8.10). It passed in 5 reruns on its own, and with the rest of `test_request_reply.py`. The failure message wasn't kept.
     - Reported on: 16 October 2026
-    - Suspected cause: not confirmed. The test relies on fixed sleeps (0.05 s for the acceptor's subscription to reach the node, 0.2 s for both replies to arrive), which may be too short when the machine is busy.
-    - Solved on: Not yet solved
+    - Suspected cause: not confirmed. The test relied on fixed sleeps (0.05 s for the acceptor's subscription to reach the node, 0.2 s for both replies to arrive), which may be too short when the machine is busy. The run that failed took 50 s, against about 35 s for a normal run, so the machine may well have been busy.
+    - Investigation (16 October 2026): the failure didn't happen again in 6 more full runs on WSL, or in 40 runs of the test alone with every CPU busy. The code it tests has no race: the requester's subscribe reaches the node before its request on the same connection, and the reply that ends the wait removes the request at once. That leaves the two sleeps as the only timing the test depends on.
+    - Fix: the test now waits for each condition instead of a fixed time (`wait_until`): for the node to have the acceptor's subscription, then for both replies. A real fault still fails it, after at most `wait_until`'s 2 s.
+    - Solved on: 16 October 2026, if the sleeps were the cause. Since the failure couldn't be reproduced, this is not proven; if it fails again, keep the output.
