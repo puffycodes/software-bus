@@ -145,6 +145,59 @@ async def test_close_does_not_report_own_connections_as_errors():
 
 
 @pytest.mark.asyncio
+async def test_close_closes_a_connection_accepted_but_not_handled_yet():
+    hub = BaseLayerNode()
+    handle_connected = hub._on_downstream_connected
+    arrived = asyncio.Event()
+    may_handle = asyncio.Event()
+
+    async def handle_late(reader, writer):
+        arrived.set()
+        await may_handle.wait()  # close() starts before the node handles it
+        await handle_connected(reader, writer)
+
+    hub._on_downstream_connected = handle_late  # before listening, which passes it on
+    server = await hub.accept_connection(port=0)
+    peer = await _open_peer_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+    try:
+        await asyncio.wait_for(arrived.wait(), timeout=1)
+        closing = asyncio.ensure_future(hub.close())
+        await asyncio.sleep(0.05)
+        may_handle.set()
+
+        await asyncio.wait_for(closing, timeout=2)  # waited forever for the connection
+        assert hub.downstream_connections == []
+        assert await asyncio.wait_for(peer.reader.read(), timeout=1) == b""
+    finally:
+        await peer.close()
+        await hub.close()
+
+
+@pytest.mark.asyncio
+async def test_establish_connection_closes_and_raises_if_the_node_closed_meanwhile(monkeypatch):
+    server, connected = await _accept_one_peer_connection()
+    node = BaseLayerNode()
+    open_connection = asyncio.open_connection
+
+    async def open_then_close_node(*args, **kwargs):
+        streams = await open_connection(*args, **kwargs)
+        await node.close()
+        return streams
+
+    monkeypatch.setattr(asyncio, "open_connection", open_then_close_node)
+    try:
+        with pytest.raises(ConnectionError):
+            await node.establish_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        assert node.upstream_connections == []
+        peer = await asyncio.wait_for(connected, timeout=1)
+        assert await asyncio.wait_for(peer.reader.read(), timeout=1) == b""
+    finally:
+        await node.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
 async def test_async_context_manager():
     async with BaseLayerNode() as layer:
         assert layer.is_accepting()

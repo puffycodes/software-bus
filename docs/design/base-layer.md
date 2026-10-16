@@ -102,6 +102,7 @@ Functionalities
 
 - **Close** Stop accepting connections on every IP/port, and close every upstream and downstream connection.
     - Close the connections before waiting for the listening sockets to finish closing: waiting may otherwise never end while accepted connections are still open.
+    - A connection that arrives while or after the node closes is closed at once, not added to a list: one accepted just before Close but handled only after it, or one Establish Connection finishes opening after Close has started (Establish Connection then fails with a connection error). Close did not see it, so nothing else would close it, and waiting for the listening sockets would never end.
     - Data still waiting in a send queue, or not yet taken by the operating system, is discarded, not sent: Close does not wait for slow peers.
     - Afterwards the lists of IP/port and of connections are empty.
     - Closing the node itself is not an error, and does not call the connection error callbacks. (The peers at the other end of the connections do see them dropped.)

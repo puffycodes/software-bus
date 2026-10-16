@@ -170,6 +170,7 @@ class BaseLayerNode:
         self.upstream_connections: List[Connection] = []
         self.downstream_connections: List[Connection] = []
         self._servers: Dict[Address, asyncio.AbstractServer] = {}
+        self._closed = False  # set by close(); a connection that arrives later is closed at once
         self._upstream_receive_callback: ReceiveCallback = (
             self._default_upstream_receive_callback
         )
@@ -252,6 +253,11 @@ class BaseLayerNode:
     async def _on_downstream_connected(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
+        if self._closed:
+            # accepted before close() but only handled now: close() didn't see it,
+            # and the server's wait_closed() waits for it to be closed
+            writer.close()
+            return
         connection = self._start_connection(reader, writer, from_upstream=False)
         logger.info("Accepted downstream connection from %s", connection.address)
         if self._downstream_new_connection_callback is not None:
@@ -265,6 +271,9 @@ class BaseLayerNode:
         The resulting connection is appended to `upstream_connections`.
         """
         reader, writer = await asyncio.open_connection(host, port)
+        if self._closed:
+            writer.close()  # close() ran while connecting, so it didn't see this one
+            raise ConnectionError("node closed while establishing the connection")
         connection = self._start_connection(reader, writer, from_upstream=True)
         logger.info("Established upstream connection to %s:%s", host, port)
         if self._upstream_new_connection_callback is not None:
@@ -436,6 +445,7 @@ class BaseLayerNode:
 
     async def close(self) -> None:
         """Stop accepting connections and close all tracked connections."""
+        self._closed = True
         for server in self._servers.values():
             server.close()
 

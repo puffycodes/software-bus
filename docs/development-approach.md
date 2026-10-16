@@ -32,6 +32,7 @@ How this project is developed and tested. For the commands to install and run th
 - Installed as an editable package from `pyproject.toml` (no `setup.py`, so pip ≥ 21.3 is needed). `PYTHONPATH=src` is the fallback when the package isn't installed.
 - Behaviour that differs between Python versions and operating systems is handled and documented:
     - From 3.12.1, `Server.wait_closed()` hangs until every connection is closed.
+        - That includes a connection accepted just before the node closed but handled only after it, so a node closes such late connections itself.
     - On Windows, `bl_server.exe` is a launcher that runs the real process as a child.
     - On Windows, asyncio keeps a loopback connection to itself in every process.
     - On Python 3.8, `asyncio.wait_for` can return normally even though the task running it was cancelled.

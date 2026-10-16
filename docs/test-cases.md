@@ -1,6 +1,6 @@
 # Test Cases
 
-All 454 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
+All 456 automated test cases in `tests/`, grouped by test file and written in plain English. A test that runs once per input case is listed once, with the inputs it covers and a count.
 
 Some behaviour can't be tested automatically; those tests are described at the end, under [Manual tests](#manual-tests), and are not included in the counts.
 
@@ -18,7 +18,7 @@ Some behaviour can't be tested automatically; those tests are described at the e
     - Empty parts count like any other part: `a..b` matches `a.*.b` and `a..b`, `a.b` doesn't match `a..b`, `a.` matches `a.*`, and `a` doesn't match `a.*`.
 - **Spotting a wild card (6 cases):** a subject has a wild card only if a whole part is `*`: `a.*`, `*` and `a.*.c` do; `a.b`, `a*.b` and an empty subject don't.
 
-## Base layer node (`test_base_layer.py`, 43 cases)
+## Base layer node (`test_base_layer.py`, 45 cases)
 - **Setup and listening**
     - A new node isn't listening and has no connections.
     - A connection is equal only to itself, even to another with the same fields, and can be a dict key or set member: the nodes key their per-connection state by it.
@@ -66,6 +66,8 @@ Some behaviour can't be tested automatically; those tests are described at the e
     - Closing a node empties its lists of connections and listening addresses.
     - Closing a node doesn't report its own connections as errors, but the peer at the other end does see its connection dropped.
     - Closing a node twice, or closing one that never listened, does no harm.
+    - Closing a node doesn't hang on a connection it accepted but hadn't handled yet when closing began: the connection is closed instead of being added to its list.
+    - If the node closes while `establish_connection` is still opening the connection, the connection is closed, not added to its list, and `establish_connection` raises a connection error.
     - Closing one connection on purpose removes it without calling an error callback; its peer sees it drop, and the other connections keep relaying.
     - Closing a connection again, or one the node doesn't have, does nothing.
 
