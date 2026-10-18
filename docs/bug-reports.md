@@ -15,6 +15,11 @@
         3. Run the two new tests, which force the race, so they don't depend on timing: `python -m pytest -v tests/test_base_layer.py -k "not_handled_yet or closed_meanwhile"`.
         4. Run the full test suite once: `python -m pytest -q`.
         5. Optional: run step 2 on `main` first. If it hangs on `main` but not on the branch, that confirms the machine hits the race and that the fix stops it. If it never hangs on `main` either, step 2 shows little, and the result rests on steps 3 and 4.
+    - Verification Result:
+        - Ran on MacOS with Python 3.12.4.
+        - Test 2: Does not have timeout command. Left out the ```timeout 60```. Test failed on run 1 or run 3.
+        - Test 3: Passed.
+        - Test 4: Passed.
 
 - Flaky Test: tests/test_request_reply.py::test_failing_reply_callback_keeps_the_wait failed once in a full test suite run on WSL (Ubuntu 20.04, Python 3.8.10). It passed in 5 reruns on its own, and with the rest of `test_request_reply.py`. The failure message wasn't kept.
     - Reported on: 16 October 2026
