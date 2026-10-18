@@ -20,6 +20,7 @@
         - Test 2: Does not have timeout command. Left out the ```timeout 60```. Test failed on run 1 or run 3.
         - Test 3: Passed.
         - Test 4: Passed.
+        - Test 5: Test Hanged.
 
 - Flaky Test: tests/test_request_reply.py::test_failing_reply_callback_keeps_the_wait failed once in a full test suite run on WSL (Ubuntu 20.04, Python 3.8.10). It passed in 5 reruns on its own, and with the rest of `test_request_reply.py`. The failure message wasn't kept.
     - Reported on: 16 October 2026
