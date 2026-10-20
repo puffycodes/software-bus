@@ -501,6 +501,9 @@ async def test_client_failing_connection_error_callback_stays_out_of_the_receive
     try:
         server = await hub.accept_connection(port=0)
         connection = await client.connect("127.0.0.1", server.sockets[0].getsockname()[1])
+        # A close() before asyncio has made the node's side of the connection leaves it open
+        # ("A connection arriving as a node closes can stay open" in docs/known-issues.md).
+        await wait_until(lambda: hub.downstream_connections)
         with caplog.at_level(logging.ERROR, logger="software_bus.client"):
             await hub.close()  # the node goes away
             await asyncio.wait_for(asyncio.wait({connection.background_task}), timeout=1)
