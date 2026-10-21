@@ -22,6 +22,8 @@
         - Test 4: Passed.
         - Test 5: Test Hanged.
     - Follow-up (20 October 2026): the hang is gone on the branch, but test 2 still failed now and then with a `TimeoutError`: the client didn't notice the node had closed. `tmp/close_race_probe.py` on the Mac showed that in about 1 in 200 runs the client never noticed, even after 10 s. That matches an asyncio bug that was forced on Windows: asyncio leaves the socket open when the node closes after the socket is accepted but before its transport exists. The test now waits until the node lists the connection before closing it. The asyncio bug is recorded in `docs/known-issues.md` ("A connection arriving as a node closes can stay open"). Test 2 needs re-running on the Mac.
+        - Result:
+            - Test 2 completed without error on Mac.
 
 - Flaky Test: tests/test_request_reply.py::test_failing_reply_callback_keeps_the_wait failed once in a full test suite run on WSL (Ubuntu 20.04, Python 3.8.10). It passed in 5 reruns on its own, and with the rest of `test_request_reply.py`. The failure message wasn't kept.
     - Reported on: 16 October 2026
