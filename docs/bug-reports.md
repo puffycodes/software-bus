@@ -1,8 +1,10 @@
 # Bug Reports
 
+Each reported bug has an ID, `BR-<year>-<number>`: the year it was reported in, and a running number that starts again at 001 each year. Give a new bug the next number for its year, and never reuse or change an ID.
+
 ## Reported Bugs
 
-- Test Hanged: tests/test_client.py::test_client_failing_connection_error_callback_stays_out_of_the_receive_loop hanged while running on Python 3.12.4.
+- [BR-2026-001] Test Hanged: tests/test_client.py::test_client_failing_connection_error_callback_stays_out_of_the_receive_loop hanged while running on Python 3.12.4.
     - Reported on: 15 October 2026
     - Solved on: 16 October 2026
     - Cause: a race in `BaseLayerNode.close()`. `client.connect()` can return before the node has handled the connection it accepted. A `close()` in that gap doesn't see the connection, and the node then lists it after closing, so nothing closes it, and `Server.wait_closed()` (Python 3.12.1+) waits for it forever. The test's failing callback was not involved.
@@ -25,7 +27,7 @@
         - Result:
             - Test 2 completed without error on Mac.
 
-- Flaky Test: tests/test_request_reply.py::test_failing_reply_callback_keeps_the_wait failed once in a full test suite run on WSL (Ubuntu 20.04, Python 3.8.10). It passed in 5 reruns on its own, and with the rest of `test_request_reply.py`. The failure message wasn't kept.
+- [BR-2026-002] Flaky Test: tests/test_request_reply.py::test_failing_reply_callback_keeps_the_wait failed once in a full test suite run on WSL (Ubuntu 20.04, Python 3.8.10). It passed in 5 reruns on its own, and with the rest of `test_request_reply.py`. The failure message wasn't kept.
     - Reported on: 16 October 2026
     - Suspected cause: not confirmed. The test relied on fixed sleeps (0.05 s for the acceptor's subscription to reach the node, 0.2 s for both replies to arrive), which may be too short when the machine is busy. The run that failed took 50 s, against about 35 s for a normal run, so the machine may well have been busy.
     - Investigation (16 October 2026): the failure didn't happen again in 6 more full runs on WSL, or in 40 runs of the test alone with every CPU busy. The code it tests has no race: the requester's subscribe reaches the node before its request on the same connection, and the reply that ends the wait removes the request at once. That leaves the two sleeps as the only timing the test depends on.
