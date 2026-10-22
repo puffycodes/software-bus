@@ -39,6 +39,12 @@ def subscribed_subjects(client):
     return set(client._client._subscribe_callbacks)
 
 
+async def wait_for_acceptors(node, request_subject, count=1):
+    """Wait until the node routes requests to `request_subject` to `count` connections."""
+    subject = f"_request.{request_subject}"
+    await wait_until(lambda: len(node._downstream_subscriptions.get(subject, [])) == count)
+
+
 def test_request_message_wire_layout():
     message = RequestMessage(f"_reply.a.{ID}", b"\x00hi")
     reply_subject = f"_reply.a.{ID}".encode()
@@ -160,7 +166,7 @@ async def test_payloads_at_the_size_limit_are_accepted():
             await replier.send_reply(reply_subject, b"y" * LONGEST_REPLY_PAYLOAD)
 
         await replier.accept_request("a", on_request)
-        await asyncio.sleep(0.05)
+        await wait_for_acceptors(node, "a")
 
         def on_reply(reply_subject, payload, status):
             reply.set_result((len(payload), status))
@@ -188,7 +194,7 @@ async def test_request_reaches_acceptor_and_reply_ends_the_wait():
             await replier.send_reply(reply_subject, payload.upper())
 
         await replier.accept_request("svc.echo", on_request)
-        await asyncio.sleep(0.05)
+        await wait_for_acceptors(node, "svc.echo")
 
         def on_reply(reply_subject, payload, status):
             replies.append((reply_subject, payload, status))
@@ -219,11 +225,12 @@ async def test_one_callback_accepting_several_subjects_gets_each_request_subject
 
         await replier.accept_request("svc.a", on_request)
         await replier.accept_request("svc.b", on_request)
-        await asyncio.sleep(0.05)
+        await wait_for_acceptors(node, "svc.a")
+        await wait_for_acceptors(node, "svc.b")
 
         first = await requester.send_request("svc.a", b"1", lambda *args: None, timeout=0)
         second = await requester.send_request("svc.b", b"2", lambda *args: None, timeout=0)
-        await asyncio.sleep(0.1)
+        await wait_until(lambda: len(requests) == 2)
 
         assert requests == [("svc.a", first, b"1"), ("svc.b", second, b"2")]
     finally:
@@ -244,12 +251,12 @@ async def test_every_acceptor_replies_and_the_wait_lasts_until_the_timeout():
                 await replier.send_reply(reply_subject, b"r%d" % index)
 
             await replier.accept_request("svc", on_request)
-        await asyncio.sleep(0.05)
+        await wait_for_acceptors(node, "svc", count=2)
 
         handle = await requester.send_request(
             "svc", b"", lambda *args: replies.append(args), timeout=0.3
         )
-        await asyncio.sleep(0.5)
+        await wait_until(lambda: len(replies) == 3)
 
         assert set(replies[:2]) == {(handle, b"r0", REPLY), (handle, b"r1", REPLY)}
         assert replies[2:] == [(handle, b"", TIMED_OUT)]
@@ -300,7 +307,7 @@ async def test_timeout_without_a_reply():
         handle = await requester.send_request(
             "nobody", b"x", lambda *args: replies.append(args), timeout=0.1
         )
-        await asyncio.sleep(0.3)
+        await wait_until(lambda: replies)
         assert replies == [(handle, b"", TIMED_OUT)]
         assert subscribed_subjects(requester) == set()
     finally:
@@ -316,9 +323,9 @@ async def test_timeout_zero_waits_until_cancelled_and_cancel_calls_nothing():
     reply_subjects, replies = [], []
     try:
         await replier.accept_request("svc", lambda request_subject, reply_subject, payload: reply_subjects.append(reply_subject))
-        await asyncio.sleep(0.05)
+        await wait_for_acceptors(node, "svc")
         handle = await requester.send_request("svc", b"", lambda *args: replies.append(args), timeout=0)
-        await asyncio.sleep(0.2)
+        await wait_until(lambda: reply_subjects)
         assert handle in subscribed_subjects(requester)
 
         await requester.cancel_request(handle)
@@ -327,7 +334,7 @@ async def test_timeout_zero_waits_until_cancelled_and_cancel_calls_nothing():
         assert handle not in subscribed_subjects(requester)
 
         await replier.send_reply(reply_subjects[0], b"late")
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.1)  # the wait ended: the late reply must not be passed on
         assert replies == []
     finally:
         await requester.close()
@@ -362,7 +369,7 @@ async def test_connection_error_ends_pending_requests_then_calls_the_callback():
             "a", b"", lambda *args: events.append(args), timeout=0
         )
         await node.close()
-        await asyncio.sleep(0.2)
+        await wait_until(lambda: len(events) == 2)
         assert events == [(handle, b"", CONNECTION_LOST), "error"]
         assert requester._requests == {}
     finally:
@@ -383,7 +390,7 @@ async def test_a_failing_connection_error_callback_is_logged_as_request_reply(ca
         handle = await requester.send_request("a", b"", lambda *args: replies.append(args), timeout=0)
         with caplog.at_level(logging.ERROR, logger="software_bus.request_reply"):
             await node.close()
-            await asyncio.sleep(0.2)
+            await wait_until(lambda: "Connection error callback failed" in caplog.text)
         # pending requests are still ended, and the failure is logged under this layer
         assert replies == [(handle, b"", CONNECTION_LOST)]
         assert any(
@@ -406,16 +413,21 @@ async def test_acceptor_keeps_accepting_after_the_client_reconnects():
             await replier.send_reply(reply_subject, b"pong")
 
         await replier.accept_request("svc", on_request)
+        await wait_for_acceptors(node, "svc")
+        old = set(node._downstream_subscriptions["_request.svc"])
         await replier.close()
         await replier.connect("127.0.0.1", port)
-        await asyncio.sleep(0.05)
+        # the new connection has subscribed, not just the old one still listed
+        await wait_until(
+            lambda: any(c not in old for c in node._downstream_subscriptions.get("_request.svc", []))
+        )
 
         def on_reply(reply_subject, payload, status):
             replies.append((payload, status))
             return True
 
         await requester.send_request("svc", b"ping", on_reply, timeout=1)
-        await asyncio.sleep(0.1)
+        await wait_until(lambda: replies)
         assert replies == [(b"pong", REPLY)]
     finally:
         await requester.close()
@@ -429,7 +441,7 @@ async def test_send_request_when_not_connected_raises_and_leaves_nothing():
     replies = []
     with pytest.raises(RuntimeError):
         await client.send_request("a", b"", lambda *args: replies.append(args), timeout=0.1)
-    await asyncio.sleep(0.2)
+    await asyncio.sleep(0.2)  # past the timeout: nothing may be called
     assert replies == []
     assert client._requests == {}
     assert subscribed_subjects(client) == set()
@@ -514,7 +526,7 @@ async def test_stop_accept_request_after_connection_lost_raises_but_forgets_the_
     try:
         await replier.accept_request("svc", callback)
         await node.close()
-        await asyncio.sleep(0.1)  # the client notices the connection is gone
+        await wait_until(lambda: replier._client._client.connection is None)  # the client notices
         with pytest.raises(RuntimeError):
             await replier.stop_accept_request("svc", callback)
         assert replier._acceptors == {}
@@ -536,7 +548,7 @@ async def test_failing_reply_callback_keeps_the_wait(caplog):
             await replier.send_reply(reply_subject, b"2")
 
         await replier.accept_request("svc", on_request)
-        await wait_until(lambda: "_request.svc" in node._downstream_subscriptions)
+        await wait_for_acceptors(node, "svc")
 
         def on_reply(reply_subject, payload, status):
             replies.append(payload)
@@ -569,7 +581,7 @@ async def test_timeout_during_a_running_reply_callback_ends_the_wait_once():
                 replier.send_reply(reply_subject, b"r")
             ),
         )
-        await asyncio.sleep(0.05)
+        await wait_for_acceptors(node, "svc")
 
         async def on_reply(reply_subject, payload, status):
             events.append(("start", status))
@@ -579,7 +591,7 @@ async def test_timeout_during_a_running_reply_callback_ends_the_wait_once():
             return True
 
         await requester.send_request("svc", b"", on_reply, timeout=0.1)
-        await asyncio.sleep(0.6)
+        await wait_until(lambda: len(events) == 3)
         assert events == [("start", REPLY), ("start", TIMED_OUT), "returns true"]
         assert requester._requests == {}
     finally:
@@ -606,22 +618,21 @@ async def test_accept_and_stop_accept_per_callback(caplog):
         await replier.accept_request("svc", on_first)
         await replier.accept_request("svc", on_first)  # already registered: still once per request
         await replier.accept_request("svc", on_second)
-        await asyncio.sleep(0.05)
+        await wait_for_acceptors(node, "svc")
 
         with caplog.at_level(logging.ERROR, logger="software_bus.request_reply"):
             await requester.send_request("svc", b"1", lambda *args: None, timeout=0)
-            await asyncio.sleep(0.1)
+            await wait_until(lambda: first and second)
         assert first == [b"1"] and second == [b"1"]
         assert "Received request callback for 'svc' failed" in caplog.text
 
         await replier.stop_accept_request("svc", on_first)
         await replier.stop_accept_request("svc", on_first)  # not registered any more: nothing happens
         await requester.send_request("svc", b"2", lambda *args: None, timeout=0)
-        await asyncio.sleep(0.1)
+        await wait_until(lambda: len(second) == 2)
         assert first == [b"1"] and second == [b"1", b"2"]
 
         await replier.stop_accept_request("svc", on_second)
-        await asyncio.sleep(0.05)
         assert subscribed_subjects(replier) == set()
     finally:
         await requester.close()
@@ -646,10 +657,10 @@ async def test_acceptor_ignores_bad_requests(payload, caplog):
     try:
         await replier.accept_request("svc", lambda *args: received.append(args))
         await publisher.connect("127.0.0.1", port)
-        await asyncio.sleep(0.05)
+        await wait_for_acceptors(node, "svc")
         with caplog.at_level(logging.WARNING, logger="software_bus.request_reply"):
             await publisher.publish("_request.svc", payload)
-            await asyncio.sleep(0.1)
+            await wait_until(lambda: "Ignoring" in caplog.text)
         assert received == []
         assert "Ignoring" in caplog.text
     finally:
